@@ -161,6 +161,8 @@ def main():
     parser.set_defaults(reinitialize_weights=False)
     args = parser.parse_args()
 
+    print('sosal')
+
     if args.remove_all_when_remove_beyond == 'inf':
         args.remove_all_when_remove_beyond = float('inf')
     else:
