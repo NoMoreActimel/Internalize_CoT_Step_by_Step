@@ -34,7 +34,161 @@ def compute_lambda_distribution(removal_smoothing_lambda, truncate_length=100):
         lambda_distribution[-1] = lambda_distribution[-1] + (1-cum_prob)
     return lambda_distribution
 
+
+def process_input_truncation_original(input_ids, labels, tokenizer, device, lambda_distribution, scheduled_to_remove, epoch, args):
+    if not (scheduled_to_remove > 0 or args.removal_smoothing_lambda != float('inf')):
+        return input_ids, labels, None, False # all_cot_removed_in_batch
     
+    batch_size = input_ids.shape[0]
+
+    first_sep_positions = get_sep_position(input_ids, tokenizer.eos_token_id)
+    second_sep_positions = get_sep_position(input_ids, tokenizer.eos_token_id, skip=1)
+    eos_positions = get_sep_position(input_ids, tokenizer.eos_token_id, skip=2)
+
+    all_cot_removed_in_batch = False
+    input_ids_tmp = []
+    labels_tmp = []
+
+    # compute number of tokens to remove
+    random_removal_offset = torch.multinomial(lambda_distribution, batch_size, replacement=True).to(device)
+    to_remove = scheduled_to_remove + random_removal_offset
+    if epoch < args.pretrain_epochs:
+        to_remove.fill_(args.remove_start_from)
+
+    if args.keep_position:
+        position_ids = torch.arange(0, input_ids.shape[-1], dtype=torch.long, device=device).unsqueeze(0).repeat(batch_size, 1)
+    
+    if args.removal_side == 'left':
+        removal_from_positions = first_sep_positions + 1 # remove from, including
+        removal_to_positions = first_sep_positions + 1 + to_remove # remove to, not including
+    else: # removal_side == 'right'
+        removal_to_positions = second_sep_positions
+        removal_from_positions = second_sep_positions - to_remove
+
+    all_cot_removed_in_batch = True
+    for batch_id in range(input_ids.shape[0]):
+        eos_position = eos_positions[batch_id]
+        removal_from_position = removal_from_positions[batch_id]
+        removal_to_position = removal_to_positions[batch_id]
+
+        removal_from_position = max(removal_from_position, first_sep_positions[batch_id]+1)
+        if removal_to_position < second_sep_positions[batch_id]:
+            all_cot_removed_in_batch = False
+        removal_to_position = min(removal_to_position, second_sep_positions[batch_id])
+
+        if args.keep_position:
+            position_ids[batch_id, removal_from_position-1:] += removal_to_position-removal_from_position
+
+        input_ids_tmp.append(torch.cat((input_ids[batch_id, :removal_from_position], input_ids[batch_id, removal_to_position:eos_position+1]), dim=-1))
+        labels_tmp.append(torch.cat((labels[batch_id, :removal_from_position], labels[batch_id, removal_to_position:eos_position+1]), dim=-1))
+    
+    input_ids = batch_ids(input_ids_tmp, tokenizer.eos_token_id, device, input_ids.dtype)
+    labels = batch_ids(labels_tmp, -100, device, input_ids.dtype)
+
+    return input_ids, labels, position_ids, all_cot_removed_in_batch
+
+
+def process_input_truncation_random_chunks(input_ids, labels, tokenizer, device, n_chunks_to_remove, chunk_size, start_id, new_token_ids, args):
+    if n_chunks_to_remove == 0:
+        return input_ids, labels, None, False # all_cot_removed_in_batch
+    
+    batch_size = input_ids.shape[0]
+
+    first_sep_positions = get_sep_position(input_ids, tokenizer.eos_token_id)
+    second_sep_positions = get_sep_position(input_ids, tokenizer.eos_token_id, skip=1)
+    eos_positions = get_sep_position(input_ids, tokenizer.eos_token_id, skip=2)
+
+    nonmasked_lenghts = second_sep_positions - first_sep_positions - 1
+    
+    all_cot_removed_in_batch = True
+    input_ids_new = []
+    labels_new = []
+    position_ids = torch.arange(
+        0, input_ids.shape[-1], dtype=torch.long, device=device
+    ).unsqueeze(0).repeat(batch_size, 1) if args.keep_position else None
+    
+    for batch_idx in range(batch_size):
+        mask = torch.zeros_like(input_ids[batch_idx], dtype=torch.bool)
+        left_border, right_border = first_sep_positions[batch_idx].item() + 1, second_sep_positions[batch_idx].item()
+
+        chunk_starts = list(enumerate(range(left_border, right_border + chunk_size - 1, chunk_size)))
+        n = min(n_chunks_to_remove, len(chunk_starts))
+        masked_chunks = random.sample(chunk_starts, n)
+
+        input_ids_cur = input_ids[batch_idx].detach().clone()
+        labels_cur = labels[batch_idx].detach().clone()
+
+        for chunk_idx, start in masked_chunks:
+            end = min(start + chunk_size, right_border)
+            input_ids_cur = torch.cat((
+                input_ids_cur[:start],
+                torch.tensor(start_id).to(input_ids.device),
+                torch.tensor(new_token_ids[batch_idx, chunk_idx]).to(input_ids.device), # <- we need to place "new-token-start" token first? 
+                input_ids_cur[end:eos_positions[batch_idx] + 1]                         # so that model has zero loss on predicting new-token-start,
+            ), dim=-1)                                                                  # but has loss on predicting the specific new token?
+
+            labels_cur = torch.cat((
+                labels_cur[:start - 1],
+                torch.tensor(-100).to(input_ids.device),
+                torch.tensor(new_token_ids[batch_idx, chunk_idx]).to(input_ids.device), # <- we need to replace start - 1 with -100
+                labels_cur[end - 1:eos_positions[batch_idx] + 1]                        # and start with new-token-id ?
+            ), dim=-1)
+
+            if args.keep_position:
+                position_ids[batch_idx, start + 2:] += end - start + 2
+
+        input_ids_new.append(input_ids_cur)
+        labels_new.append(labels_cur)
+        nonmasked_lenghts[batch_idx] = nonmasked_lenghts[batch_idx] - (end - start)
+    
+    if nonmasked_lenghts.sum():
+        all_cot_removed_in_batch = False
+        
+    return input_ids_new, labels_new, position_ids, all_cot_removed_in_batch
+
+
+
+def _process_input_truncation(input_ids, labels, tokenizer, device, lambda_distribution, **config):
+    # Remove answer part
+    sep_positions = get_sep_position(input_ids, tokenizer.eos_token_id)
+    batch_size = input_ids.shape[0]
+    first_sep_positions = get_sep_position(input_ids, tokenizer.eos_token_id)
+    second_sep_positions = get_sep_position(input_ids, tokenizer.eos_token_id, skip=1)
+    eos_positions = get_sep_position(input_ids, tokenizer.eos_token_id, skip=2)
+
+    if config["scheduled_to_remove"] > 0 or config["removal_smoothing_lambda"] != float('inf'):
+        if config["keep_position"]:
+            position_ids_all = torch.arange(0, input_ids.shape[-1], dtype=torch.long, device=device).unsqueeze(0).repeat(batch_size, 1)
+        input_ids_tmp = []
+        labels_tmp = []
+        random_removal_offset = torch.multinomial(lambda_distribution, batch_size, replacement=True).to(device)
+        if config["disable_random_removal_offset"]:
+            random_removal_offset.fill_(0)
+        to_remove = config["scheduled_to_remove"] + random_removal_offset
+        if config["removal_side"] == 'left':
+            removal_from_positions = first_sep_positions + 1 # remove from, including
+            removal_to_positions = first_sep_positions + 1 + to_remove # remove to, not including
+        else: # removal_side == 'right'
+            removal_to_positions = second_sep_positions
+            removal_from_positions = second_sep_positions - to_remove
+
+        for batch_id in range(input_ids.shape[0]):
+            eos_position = eos_positions[batch_id]
+            removal_from_position = removal_from_positions[batch_id]
+            removal_to_position = removal_to_positions[batch_id]
+            removal_from_position = max(removal_from_position, first_sep_positions[batch_id]+1)
+            removal_to_position = min(removal_to_position, second_sep_positions[batch_id])
+            if config["keep_position"]:
+                position_ids_all[batch_id, removal_from_position-1:] += removal_to_position-removal_from_position
+            input_ids_tmp.append(torch.cat((input_ids[batch_id, :removal_from_position], input_ids[batch_id, removal_to_position:eos_position+1]), dim=-1))
+            labels_tmp.append(torch.cat((labels[batch_id, :removal_from_position], labels[batch_id, removal_to_position:eos_position+1]), dim=-1))
+        input_ids = batch_ids(input_ids_tmp, tokenizer.eos_token_id, device, input_ids.dtype)
+        labels = batch_ids(labels_tmp, -100, device, input_ids.dtype)
+    
+    return input_ids, labels, position_ids_all
+
+
+        
 @torch.no_grad()
 def evaluate(dataloader, tokenizer, device, ctx, model, max_new_tokens, scheduled_to_remove, removal_side, removal_smoothing_lambda, lambda_distribution, keep_position=False, disable_random_removal_offset=False):
     model.eval()
@@ -250,15 +404,19 @@ def main():
             scheduled_to_remove = int(round(scheduled_to_remove))
         if scheduled_to_remove >= args.remove_all_when_remove_beyond:
             scheduled_to_remove = float('inf') # remove all
+
         print(f"Epoch {epoch}. Scheduled to remove: {scheduled_to_remove}")
         model.train()
+
         for batch in tqdm.tqdm(train_dataloader):
             prev_scheduled_to_remove = scheduled_to_remove
+
             if remove_step_counter == steps_per_removed_token or steps_per_removed_token == 0:
                 scheduled_to_remove += 1
                 remove_step_counter = 0
             if epoch >= args.pretrain_epochs:
                 remove_step_counter += 1
+            
             if scheduled_to_remove > prev_scheduled_to_remove:
                 print(f" -epoch {epoch}. step {step}. removing: {scheduled_to_remove}")
                 if args.reset_optimizer and (not all_cot_removed_in_prev_batch):
@@ -266,51 +424,20 @@ def main():
                     optimizer.zero_grad(set_to_none=True)
                     del optimizer
                     optimizer = torch.optim.AdamW(trainable_params, lr=args.lr, **extra_args)
+                
             if scheduled_to_remove >= args.remove_all_when_remove_beyond:
                 scheduled_to_remove = float('inf') # remove all
+
             input_ids = batch['input_ids_all'].to(device)
             labels = batch['labels_all'].to(device)
-            batch_size = input_ids.shape[0]
 
-            first_sep_positions = get_sep_position(input_ids, tokenizer.eos_token_id)
-            second_sep_positions = get_sep_position(input_ids, tokenizer.eos_token_id, skip=1)
-            eos_positions = get_sep_position(input_ids, tokenizer.eos_token_id, skip=2)
+            input_ids, labels, position_ids, all_cot_removed_in_batch = process_input_truncation_original(
+                input_ids, labels, tokenizer, device, lambda_distribution, scheduled_to_remove, epoch, args
+            )
 
-            all_cot_removed_in_batch = False
-            if scheduled_to_remove > 0 or args.removal_smoothing_lambda != float('inf'):
-                input_ids_tmp = []
-                labels_tmp = []
-                random_removal_offset = torch.multinomial(lambda_distribution, batch_size, replacement=True).to(device)
-                to_remove = scheduled_to_remove + random_removal_offset
-                if epoch < args.pretrain_epochs:
-                    to_remove.fill_(args.remove_start_from)
-                if args.keep_position:
-                    position_ids = torch.arange(0, input_ids.shape[-1], dtype=torch.long, device=device).unsqueeze(0).repeat(batch_size, 1)
-                if args.removal_side == 'left':
-                    removal_from_positions = first_sep_positions + 1 # remove from, including
-                    removal_to_positions = first_sep_positions + 1 + to_remove # remove to, not including
-                else: # removal_side == 'right'
-                    removal_to_positions = second_sep_positions
-                    removal_from_positions = second_sep_positions - to_remove
+            if not all_cot_removed_in_batch:
+                best_val_accuracy = float('-inf')
 
-                all_cot_removed_in_batch = True
-                for batch_id in range(input_ids.shape[0]):
-                    eos_position = eos_positions[batch_id]
-                    removal_from_position = removal_from_positions[batch_id]
-                    removal_to_position = removal_to_positions[batch_id]
-                    removal_from_position = max(removal_from_position, first_sep_positions[batch_id]+1)
-                    if removal_to_position < second_sep_positions[batch_id]:
-                        all_cot_removed_in_batch = False
-                    removal_to_position = min(removal_to_position, second_sep_positions[batch_id])
-                    if args.keep_position:
-                        position_ids[batch_id, removal_from_position-1:] += removal_to_position-removal_from_position
-                    input_ids_tmp.append(torch.cat((input_ids[batch_id, :removal_from_position], input_ids[batch_id, removal_to_position:eos_position+1]), dim=-1))
-                    labels_tmp.append(torch.cat((labels[batch_id, :removal_from_position], labels[batch_id, removal_to_position:eos_position+1]), dim=-1))
-                input_ids = batch_ids(input_ids_tmp, tokenizer.eos_token_id, device, input_ids.dtype)
-                labels = batch_ids(labels_tmp, -100, device, input_ids.dtype)
-                if not all_cot_removed_in_batch:
-                    best_val_accuracy = float('-inf')
-            #print (input_ids.shape)
             all_cot_removed_in_prev_batch = all_cot_removed_in_batch
             if args.max_len_train > 0 and input_ids.shape[-1] > args.max_len_train:
                 print ('skipped')
@@ -320,6 +447,7 @@ def main():
                 if args.keep_position:
                     position_ids = position_ids[:, :input_ids.shape[-1]]
                 outputs = model.compute_loss(input_ids=input_ids, labels=labels, position_ids=position_ids)
+
             loss = outputs.loss
             loss.div(args.accumulate).backward()
             if step % args.accumulate == 0:
@@ -332,15 +460,27 @@ def main():
                 ppl = loss.exp().item()
                 print (f"Step: {step}. PPL: {ppl}. Token Accuracy: {token_accuracy}")
             step += 1
+
         print (f'Scheduled to remove: {scheduled_to_remove}')
-        accuracy, token_accuracy, ppl = evaluate(val_dataloader, tokenizer, device, ctx, model, args.max_new_tokens, scheduled_to_remove, args.removal_side, args.removal_smoothing_lambda, lambda_distribution, keep_position=args.keep_position, disable_random_removal_offset=True)
+
+        accuracy, token_accuracy, ppl = evaluate(
+            val_dataloader, tokenizer, device, ctx, model, args.max_new_tokens,
+            scheduled_to_remove, args.removal_side, args.removal_smoothing_lambda, lambda_distribution,
+            keep_position=args.keep_position, disable_random_removal_offset=True
+        )
         print (f'Disable Offset Val. PPL: {ppl}; Accuracy: {accuracy}; Token Accuracy: {token_accuracy}.')
+
         if accuracy > best_val_accuracy:
             print ('***best so far or removed more CoT tokens***')
             best_val_accuracy = accuracy
             if args.test_path:
-                accuracy, token_accuracy, ppl = evaluate(test_dataloader, tokenizer, device, ctx, model, args.max_new_tokens, scheduled_to_remove, args.removal_side, args.removal_smoothing_lambda, lambda_distribution, keep_position=args.keep_position, disable_random_removal_offset=True)
+                accuracy, token_accuracy, ppl = evaluate(
+                    test_dataloader, tokenizer, device, ctx, model, args.max_new_tokens,
+                    scheduled_to_remove, args.removal_side, args.removal_smoothing_lambda, lambda_distribution,
+                    keep_position=args.keep_position, disable_random_removal_offset=True
+                )
                 print (f'Test. PPL: {ppl}; Accuracy: {accuracy}; Token Accuracy: {token_accuracy}.')
+            
         model.save_pretrained(os.path.join(args.save_model, f'checkpoint_{epoch}'))
 
 if __name__ == "__main__":
