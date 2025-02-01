@@ -30,7 +30,6 @@ class CoTDataset(Dataset):
         assert os.path.isfile(file_path), f"Input file path {file_path} not found"
         print (f'Creating features from dataset file at {file_path}')
         eos_tok = tokenizer.eos_token
-        eos_tok = tokenizer.eos_token
 
         with open(file_path, encoding="utf-8") as f:
             #lines = [line.split('||') for line in f.read().splitlines() if (len(line) > 0 and not line.isspace()
@@ -66,7 +65,7 @@ class CoTDataset(Dataset):
             else:
                 batch_encoding_all = tokenizer([sent], add_special_tokens=True)
             self.examples_all.append(batch_encoding_all["input_ids"][0])
-            if len(self.examples_all) % 1000 == 0:
+            if len(self.examples_all) % 10000 == 0:
                 print (len(self.examples_all))
 
         separator = tokenizer.eos_token_id #tokenizer(eos_tok, add_special_tokens=False)['input_ids'][0]
@@ -85,6 +84,38 @@ class CoTDataset(Dataset):
                 torch.tensor(input_ids, dtype=torch.long),
                 torch.tensor(labels, dtype=torch.long),
                 )
+
+
+class CoTDatasetWithoutTokenization(Dataset):
+    def __init__(self, file_path, max_length=-1, max_size=-1):
+        assert os.path.isfile(file_path), f"Input file path {file_path} not found"
+        print (f'Creating features from dataset file at {file_path}')
+
+        with open(file_path, encoding="utf-8") as f:
+            lines = [
+                line.strip().split('||')
+                for line in f.readlines()
+                if (len(line.strip()) > 0 and not line.strip().isspace() and len(line.strip().split('||')) == 2)
+            ]
+        
+        if max_size > 0:
+            print (f'truncated to {max_size}')
+            lines = lines[:max_size]
+        
+        src_lines, tgt_lines = list(zip(*lines))
+        self.src_lines = list(src_lines)
+        self.tgt_lines = list(tgt_lines)
+
+    def __len__(self):
+        return len(self.examples_all)
+
+    def __getitem__(self, i):
+        return {"src": self.src_lines[i], "tgt": self.tgt_lines[i]}
+    
+
+
+
+
 @dataclass
 class CoTDataCollator:
     """
@@ -96,21 +127,10 @@ class CoTDataCollator:
         self.tokenizer = tokenizer
 
     def __call__(self, examples):
-        #import pdb; pdb.set_trace()
         input_ids_all, labels_all = zip(*examples)
-        #input_ids_cot = self._tensorize_batch(input_ids_cot)
-        #input_ids_cot[input_ids_cot.lt(0)] = self.tokenizer.eos_token_id
-        #input_ids_only = self._tensorize_batch(input_ids_only)
-        #input_ids_only[input_ids_only.lt(0)] = self.tokenizer.eos_token_id
         input_ids_all = self._tensorize_batch(input_ids_all)
         input_ids_all[input_ids_all.lt(0)] = self.tokenizer.eos_token_id
-        #input_ids_nocot = self._tensorize_batch(input_ids_nocot)
-        #input_ids_nocot[input_ids_nocot.lt(0)] = self.tokenizer.eos_token_id
-        #labels_cot = self._tensorize_batch(labels_cot)
         labels_all = self._tensorize_batch(labels_all)
-        #labels_cot_shift = self._tensorize_batch(labels_cot_shift)
-        #labels_nocot = self._tensorize_batch(labels_nocot)
-        #return {"input_ids_cot": input_ids_cot, "input_ids_nocot": input_ids_nocot, "labels_cot": labels_cot, "labels_cot_shift": labels_cot_shift, "labels_nocot": labels_nocot, 'input_ids_only': input_ids_only, 'input_ids_all': input_ids_all, 'labels_all': labels_all}
         return {'input_ids_all': input_ids_all, 'labels_all': labels_all}
 
     def _tensorize_batch(self, examples):
@@ -123,3 +143,62 @@ class CoTDataCollator:
             return torch.stack(examples, dim=0)
         else:
             return pad_sequence(examples, batch_first=True, padding_value=-100)
+
+@dataclass
+class CoTDataCollatorWithTokenization:
+    """
+    VAEData collator used for language modeling.
+    - collates batches of tensors, honoring their tokenizer's pad_token
+    - preprocesses batches for masked language modeling
+    """
+    def __init__(self, tokenizer, max_length=-1):
+        self.tokenizer = tokenizer
+        self.eos_token = tokenizer.eos_token
+        self.separator = tokenizer.eos_token_id
+        self.max_length = max_length
+
+    def __call__(self, examples):
+        input_ids_all, labels_all = zip(*examples)
+        input_ids_all = self._tensorize_batch(input_ids_all)
+        input_ids_all[input_ids_all.lt(0)] = self.tokenizer.eos_token_id
+        labels_all = self._tensorize_batch(labels_all)
+        return {'input_ids_all': input_ids_all, 'labels_all': labels_all}
+
+    def _tokenize_batch(self, examples):
+        input_ids_all, labels_all = [], []
+
+        for example in examples:
+            src, tgt = example["src"], example["tgt"]
+            ans = extract_answer(tgt)
+            cot = extract_cot(tgt)
+
+            sent = ' {} {} '.format(src, self.eos_token) + cot + ' {} '.format(self.eos_token) + ans + ' {}'.format(self.eos_token)
+            
+            if self.max_length > 0:
+                batch_encoding_all = self.tokenizer([sent], add_special_tokens=True, truncation=True, max_length=self.max_length)
+            else:
+                batch_encoding_all = self.tokenizer([sent], add_special_tokens=True)
+
+            input_ids = batch_encoding_all["input_ids"][0]
+            labels = copy.deepcopy(input_ids)
+            sep_idx = labels.index(self.separator) + 1
+            labels[:sep_idx] = [-100] * sep_idx
+            
+            input_ids_all.append(torch.tensor(input_ids, dtype=torch.long))
+            labels_all.append(torch.tensor(labels, dtype=torch.long))
+        
+        return input_ids_all, labels_all
+
+    def _tensorize_batch(self, examples):
+        # In order to accept both lists of lists and lists of Tensors
+        if isinstance(examples[0], (list, tuple)):
+            examples = [torch.tensor(e, dtype=torch.long) for e in examples]
+        length_of_first = examples[0].size(0)
+        are_tensors_same_length = all(x.size(0) == length_of_first for x in examples)
+        if are_tensors_same_length:
+            return torch.stack(examples, dim=0)
+        else:
+            return pad_sequence(examples, batch_first=True, padding_value=-100)
+
+
+

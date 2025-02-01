@@ -1,0 +1,147 @@
+from dataclasses import dataclass
+import os
+import copy
+import random
+import torch
+from torch.utils.data import Dataset
+from torch.nn.utils.rnn import pad_sequence
+
+from data import extract_answer, extract_cot
+from utils import get_sep_position
+
+
+def get_chunks_positions(sample, tokenizer, chunk_size):
+    if len(sample.shape) == 1:
+        sample = sample.unsqueeze(0)
+
+    first_sep_positions = get_sep_position(sample, tokenizer.eos_token_id)
+    second_sep_positions = get_sep_position(sample, tokenizer.eos_token_id, skip=1)
+
+    left_border, right_border = first_sep_positions.item() + 1, second_sep_positions.item()
+
+    chunk_positions = list(range(left_border, right_border + chunk_size - 1, chunk_size))
+    return chunk_positions
+
+def assign_new_tokens_to_chunks(chunk_positions, new_token_ids):
+    chunk_new_token_ids = list(random.sample(new_token_ids, len(chunk_positions)))
+    return chunk_new_token_ids
+
+def add_new_tokens(model, tokenizer, num_new_tokens):    
+    orig_vocab_length = len(tokenizer.get_vocab())
+
+    new_tokens = [f"<ULTRA_MEGA_NEW_TOKEN_{i}" for i in range(num_new_tokens)]
+    num_added_tokens = tokenizer.add_tokens(new_tokens)
+
+    vocab_length = len(tokenizer.get_vocab())
+
+    assert num_added_tokens == num_new_tokens, "New tokens addition failed, change the new token template?"
+    assert orig_vocab_length + num_new_tokens == vocab_length, "New tokens addition failed, change the new token template?"
+
+    model.resize_token_embeddings(len(tokenizer))
+    new_token_ids = [id for id in range(orig_vocab_length, vocab_length)]
+    return model, tokenizer, new_token_ids
+
+
+class CoTDatasetAssignedChunks(Dataset):
+    def __init__(self, model, tokenizer, file_path, max_length=-1, max_size=-1, chunk_size=8, num_new_tokens=1000):
+        super().__init__()
+
+        assert os.path.isfile(file_path), f"Input file path {file_path} not found"
+        print (f'Creating features from dataset file at {file_path}')
+
+        self.model, self.tokenizer, self.new_token_ids = add_new_tokens(model, tokenizer, num_new_tokens)
+        self.eos_tok = self.tokenizer.eos_token
+        self.separator = tokenizer.eos_token_id
+
+        self.file_path = file_path
+        self.max_length = max_length
+        self.max_size = max_size
+        self.chunk_size = chunk_size
+        self.num_new_tokens = num_new_tokens
+
+        lines = self._read_lines(file_path, max_size)
+        self.examples_all = self._process_examples(lines)
+        
+
+    def _read_lines(self):
+        with open(self.file_path, encoding="utf-8") as f:
+            lines = [
+                line.strip().split('||')
+                for line in f.readlines()
+                if (len(line.strip()) > 0 and not line.strip().isspace() and len(line.strip().split('||')) == 2)
+            ]
+        if self.max_size > 0:
+            print (f'truncated to {self.max_size}')
+            lines = lines[:self.max_size]
+        
+        return lines
+        
+    def _process_examples(self, lines):
+        src_lines, tgt_lines = list(zip(*lines))
+        src_lines = list(src_lines)
+        tgt_lines = list(tgt_lines)
+
+        examples_all = []
+        for src, tgt in zip(src_lines, tgt_lines):
+            ans = extract_answer(tgt)
+            cot = extract_cot(tgt)
+            sent_ = ' {} {} '.format(src, self.eos_tok) + cot + ' {} '.format(self.eos_tok) + ans + ' {}'.format(self.eos_tok)
+            sent = f' {src} {self.eos_tok} {cot} {self.eos_tok} {ans} {self.eos_tok} '
+
+            print(f"SENT PREV: {sent_}")
+            print(f"SENT NOW: {sent}")
+
+            if self.max_length > 0:
+                batch_encoding_all = self.tokenizer([sent], add_special_tokens=True, truncation=True, max_length=self.max_length)
+            else:
+                batch_encoding_all = self.tokenizer([sent], add_special_tokens=True)
+
+            chunk_positions = get_chunks_positions(batch_encoding_all, self.tokenizer, self.chunk_size)
+            chunk_new_token_ids = assign_new_tokens_to_chunks(chunk_positions, self.new_token_ids)
+
+            examples_all.append({
+                "input_ids": batch_encoding_all["input_ids"][0],
+                "chunk_positions": chunk_positions,
+                "chunk_input_ids": chunk_new_token_ids 
+            })
+
+            if len(examples_all) % 10000 == 0:
+                print (len(examples_all))
+        
+        return examples_all
+            
+    def __len__(self):
+        return len(self.examples_all)
+
+    def __getitem__(self, i):
+        item = self.examples_all[i]
+        input_ids, chunk_input_ids = item["input_ids"], item["chunk_input_ids"]
+
+        labels = copy.deepcopy(input_ids)
+        sep_idx = labels.index(self.separator) + 1
+        labels[:sep_idx] = [-100] * sep_idx
+
+        return {
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "labels": torch.tensor(labels, dtype=torch.long),
+            "chunk_input_ids": torch.tensor(chunk_input_ids, dtype=torch.long)
+        }
+    
+
+@dataclass
+class CoTDataCollatorAssignedChunks:
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+
+    def __call__(self, items):
+        input_ids = [item["input_ids"] for item in items]
+        labels = [item["labels"] for item in items]
+        chunk_input_ids = [item["chunk_input_ids"] for item in items]
+
+        input_ids = pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.eos_token_id)
+        labels = pad_sequence(labels, batch_first=True, padding_value=-100)
+        return {
+            'input_ids': input_ids,
+            'labels': labels,
+            'chunk_input_ids': chunk_input_ids
+        }
