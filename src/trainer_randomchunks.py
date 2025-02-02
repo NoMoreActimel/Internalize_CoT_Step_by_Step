@@ -38,18 +38,32 @@ class RandomChunksTrainer(BaseTrainer):
         if self.remove_when_flat_loss and args.n_chunks_to_remove_from_start > 0:
             print (f'the number of removed CoT chunks starts from {args.n_chunks_to_remove_from_start}')
             self.scheduled_to_remove = args.n_chunks_to_remove_from_start
+        
+        self.val_truncation_kwargs = {
+            "n_chunks_to_remove": self.n_chunks_to_remove,
+            "mask_new_tokens_in_labels": True
+        }
+        self.val_generation_kwargs = {
+            "max_new_tokens": self.args.max_new_tokens,
+            "stop_on_two_eos": True,
+            "use_new_tokens": True,
+            "new_tokens_start_id": self.start_id
+        }
     
     def _reset_optimizer(self):
         print ('RESETTING OPTIMIZER')
         self.optimizer.zero_grad(set_to_none=True)
         del self.optimizer
-        self.optimizer = torch.optim.AdamW(self.trainable_params, lr=self.args.lr, **{"fused": self.use_fused})
+        self.optimizer = torch.optim.AdamW(self.get_trainable_params(), lr=self.args.lr, **{"fused": self.use_fused})
     
-    def train(self):
+    def _train_process(self):
         step = 0
+        if self.writer: self.writer.set_step(step)
         loss_log = []
 
         for epoch in range(self.args.epochs):
+            self.epoch = epoch
+            if self.writer: self.writer.add_scalar("epoch", epoch)
             self.model.train()
 
             if self.schedule_index + 1 < len(self.chunk_removal_schedule):
@@ -96,111 +110,50 @@ class RandomChunksTrainer(BaseTrainer):
                 loss = outputs.loss
                 loss_log[-1].append(loss.item())
                 loss.div(self.args.accumulate).backward()
+                grad_norm = self.get_grad_norm()
+
 
                 if step % self.args.accumulate == 0:
-                    torch.nn.utils.clip_grad_norm_(self.trainable_params, self.args.max_grad_norm)
+                    torch.nn.utils.clip_grad_norm_(self.get_trainable_params(), self.args.max_grad_norm)
                     self.optimizer.step()
                     self.optimizer.zero_grad(set_to_none=True)
 
+                if self.metrics_tracker:
+                    self.metrics_tracker.update("train_loss", loss.item())
+                    self.metrics_tracker.update("train_perplexity", loss.exp().item())
+                    self.metrics_tracker.update("train_token_accuracy", outputs.token_accuracy.item())
+                    self.metrics_tracker.update("grad_norm", grad_norm)
+                
                 if step % 100 == 0:
                     token_accuracy = outputs.token_accuracy.item()
                     ppl = loss.exp().item()
                     print (f"Step: {step}. PPL: {ppl}. Token Accuracy: {token_accuracy}")
-                step += 1
+                    if self.metrics_tracker:
+                        self.log_scalars(self.metrics_tracker)
+                        self.metrics_tracker.reset()
+                        self.writer.add_scalar("learning rate", self.optimizer.param_groups[0]['lr'])
 
+                step += 1
+                if self.writer: self.writer.set_step(step)
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
-            accuracy, token_accuracy, ppl = self.evaluate(self.val_dataloader, name="Validation", loss_on_new_tokens=False)
+            accuracy, token_accuracy, ppl = self.evaluate(self.val_dataloader, "val", self.val_truncation_kwargs, self.val_generation_kwargs)
 
             if accuracy > best_val_accuracy:
                 print ('***best so far or removed more CoT tokens***')
                 best_val_accuracy = accuracy
                 if self.args.test_path:
-                    self.evaluate(self.test_dataloader, loss_on_new_tokens=False)
-                
+                    self.evaluate(self.test_dataloader, "test", self.val_truncation_kwargs, self.val_generation_kwargs)
+
             self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
-    
-
-    @torch.no_grad()
-    def evaluate(self, dataloader, name="Validation", loss_on_new_tokens=False):
-        self.model.eval()
-        total_instances = 0
-        total_tokens = 0
-        total_correct = 0
-        total_correct_tokens = 0
-        total_loss = 0
-
-        for batch in tqdm.tqdm(dataloader):
-            input_ids_all = batch['input_ids_all'].to(self.device)
-            labels_all = batch['labels_all'].to(self.device)
-            chunk_input_ids = batch['chunk_input_ids'].to(self.device)
-            chunk_positions = batch['chunk_positions']
-
-            input_ids_all, labels_all, position_ids_all, _ = self.process_input_truncation_random_chunks(
-                input_ids_all, labels_all,
-                n_chunks_to_remove=self.n_chunks_to_remove,
-                chunk_positions=chunk_positions,
-                chunk_input_ids=chunk_input_ids,
-                mask_new_tokens_in_labels=not loss_on_new_tokens
-            )
-
-            with self.ctx:
-                if self.args.keep_position:
-                    position_ids_all = position_ids_all[:, :input_ids_all.shape[-1]]
-                outputs = self.model.compute_loss(input_ids=input_ids_all, labels=labels_all, position_ids=position_ids_all)
-
-            total_loss += outputs.total_loss.item()
-            total_correct_tokens += outputs.total_correct.item()
-            total_tokens += outputs.total_tokens
-            total_instances += input_ids_all.shape[0]
-
-            # Generate + Evaluate
-            # input_ids_all are cut to the start of COTs inside the model.generate
-            first_sep_positions = get_sep_position(input_ids_all, self.tokenizer.eos_token_id)
-            beam_outputs = self.model.generate(
-                input_ids=input_ids_all,
-                position_ids=position_ids_all,
-                max_new_tokens=self.args.max_new_tokens,
-                stop_on_two_eos=True,
-                use_new_tokens=True,
-                new_tokens_start_id=self.start_id
-            )
-
-            for i, (input_ids_all_i, beam_output_i) in enumerate(zip(input_ids_all, beam_outputs)):
-                tgt = input_ids_all_i[first_sep_positions[i] + 1:]
-                tgt_text = self.tokenizer.decode(tgt, skip_special_tokens=True)
-                ans = extract_answer(tgt_text)
-
-                pred_text = self.tokenizer.decode(beam_output_i[0][first_sep_positions[i] + 1:], skip_special_tokens=True)
-                pred_ans = extract_answer(pred_text)
-                if ans == pred_ans:
-                    total_correct += 1
-                
-                query = self.tokenizer.decode(input_ids_all_i[:first_sep_positions[i]], skip_special_tokens=True)
-
-                print (f'Input: {query}')
-                print (f'Target: {tgt_text}')
-                print (f'Predicted: {pred_text}')
-                print ('')
-            
-        accuracy = total_correct / total_instances
-        token_accuracy = total_correct_tokens / total_tokens
-        loss = total_loss / total_tokens
-        ppl = math.exp(loss)
-
-        print (f'Part: {name}; PPL: {ppl}; Accuracy: {accuracy}; Token Accuracy: {token_accuracy}.')
-        return accuracy, token_accuracy, ppl
 
 
-    def process_input_truncation_random_chunks(
-            self,
-            input_ids,
-            labels,
-            n_chunks_to_remove,
-            chunk_positions,
-            chunk_input_ids,
-            mask_new_tokens_in_labels=False
-    ):
+    def process_input_truncation(self, batch, n_chunks_to_remove, mask_new_tokens_in_labels=False):
+        input_ids = batch['input_ids'].to(self.device)
+        labels = batch['labels'].to(self.device)
+        chunk_input_ids = batch['chunk_input_ids'].to(self.device)
+        chunk_positions = batch['chunk_positions']
+
         if n_chunks_to_remove == 0:
             return input_ids, labels, None, False # all_cot_removed_in_batch
         
