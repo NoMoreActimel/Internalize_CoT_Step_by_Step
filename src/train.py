@@ -9,15 +9,13 @@ import random
 import torch
 
 from torch.utils.data import DataLoader
-from transformers import AdamW
 
 from model import ImplicitModel
 from configuration_model import ImplicitModelConfig
-from data import CoTDataset, CoTDataCollator, extract_answer
+from data import CoTDataset, CoTDataCollator
 from data_chunked import CoTDatasetAssignedChunks, CoTDataCollatorAssignedChunks, add_new_tokens
 from trainer_stepbystep import StepByStepTrainer
 from trainer_randomchunks import RandomChunksTrainer
-from utils import get_sep_position, batch_ids, save_model
 
 
 torch.backends.cuda.matmul.allow_tf32 = True
