@@ -2,23 +2,20 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-import writer
+import wandb
 
 
 class WanDBWriter:
     def __init__(self, args):
         config = vars(args)
-
         try:
-            import writer
-            writer.login()
-
-            writer.init(
+            wandb.login()
+            wandb.init(
                 project=config["wandb_project"],
                 name=config.get("wandb_run_name"),
                 config=config
             )
-            self.wandb = writer
+            self.wandb = wandb
         except ImportError:
             print("WanDB not found, install it via \n\t pip install wandb")
 
