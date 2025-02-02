@@ -63,7 +63,6 @@ def evaluate(dataloader, tokenizer, device, ctx, model, max_new_tokens):
     throughput = total_instances / total_time
     return accuracy, throughput
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--from_pretrained', type=str, default=None)

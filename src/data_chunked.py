@@ -37,19 +37,24 @@ def add_new_tokens(model, tokenizer, num_new_tokens):
     assert num_added_tokens == num_new_tokens, "New tokens addition failed, change the new token template?"
     assert orig_vocab_length + num_new_tokens == vocab_length, "New tokens addition failed, change the new token template?"
 
-    model.resize_token_embeddings(len(tokenizer))
+    model.base_model.resize_token_embeddings(len(tokenizer))
     new_token_ids = [id for id in range(orig_vocab_length, vocab_length)]
     return model, tokenizer, new_token_ids
 
 
 class CoTDatasetAssignedChunks(Dataset):
-    def __init__(self, model, tokenizer, file_path, max_length=-1, max_size=-1, chunk_size=8, num_new_tokens=1000):
+    def __init__(self, model, tokenizer, file_path, max_length=-1, max_size=-1, chunk_size=8, num_new_tokens=1000, new_token_ids=None):
+        """
+            This dataset precomputes chunk positions for each of the samples in the file_path,
+            assigning randomly sampled new_token_ids for each chunk.
+        """
         super().__init__()
 
         assert os.path.isfile(file_path), f"Input file path {file_path} not found"
         print (f'Creating features from dataset file at {file_path}')
 
-        self.model, self.tokenizer, self.new_token_ids = add_new_tokens(model, tokenizer, num_new_tokens)
+        self.tokenizer, self.new_token_ids = model, tokenizer, new_token_ids
+        
         self.eos_tok = self.tokenizer.eos_token
         self.separator = tokenizer.eos_token_id
 
@@ -59,21 +64,19 @@ class CoTDatasetAssignedChunks(Dataset):
         self.chunk_size = chunk_size
         self.num_new_tokens = num_new_tokens
 
-        lines = self._read_lines(file_path, max_size)
+        lines = self._read_lines()
         self.examples_all = self._process_examples(lines)
         
 
     def _read_lines(self):
         with open(self.file_path, encoding="utf-8") as f:
-            lines = [
-                line.strip().split('||')
-                for line in f.readlines()
-                if (len(line.strip()) > 0 and not line.strip().isspace() and len(line.strip().split('||')) == 2)
-            ]
-        if self.max_size > 0:
-            print (f'truncated to {self.max_size}')
-            lines = lines[:self.max_size]
-        
+            lines = []
+            for line in f.readlines():
+                if (len(line.strip()) > 0 and not line.strip().isspace() and len(line.strip().split('||')) == 2):
+                    lines.append(line.strip().split('||'))
+                    if self.max_size and len(lines) >= self.max_size:
+                        break
+
         return lines
         
     def _process_examples(self, lines):
@@ -85,22 +88,23 @@ class CoTDatasetAssignedChunks(Dataset):
         for src, tgt in zip(src_lines, tgt_lines):
             ans = extract_answer(tgt)
             cot = extract_cot(tgt)
-            sent_ = ' {} {} '.format(src, self.eos_tok) + cot + ' {} '.format(self.eos_tok) + ans + ' {}'.format(self.eos_tok)
+
             sent = f' {src} {self.eos_tok} {cot} {self.eos_tok} {ans} {self.eos_tok} '
 
-            print(f"SENT PREV: {sent_}")
-            print(f"SENT NOW: {sent}")
+            sent_encoded = self.tokenizer(
+                [sent],
+                add_special_tokens=True,
+                truncation=(self.max_length > 0),
+                max_length=self.max_length if self.max_length > 0 else None,
+                return_tensors="pt"
+            )
 
-            if self.max_length > 0:
-                batch_encoding_all = self.tokenizer([sent], add_special_tokens=True, truncation=True, max_length=self.max_length)
-            else:
-                batch_encoding_all = self.tokenizer([sent], add_special_tokens=True)
-
-            chunk_positions = get_chunks_positions(batch_encoding_all, self.tokenizer, self.chunk_size)
+            input_ids = sent_encoded["input_ids"][0]
+            chunk_positions = get_chunks_positions(input_ids, self.tokenizer, self.chunk_size)
             chunk_new_token_ids = assign_new_tokens_to_chunks(chunk_positions, self.new_token_ids)
 
             examples_all.append({
-                "input_ids": batch_encoding_all["input_ids"][0],
+                "input_ids": input_ids,
                 "chunk_positions": chunk_positions,
                 "chunk_input_ids": chunk_new_token_ids 
             })
@@ -115,16 +119,18 @@ class CoTDatasetAssignedChunks(Dataset):
 
     def __getitem__(self, i):
         item = self.examples_all[i]
-        input_ids, chunk_input_ids = item["input_ids"], item["chunk_input_ids"]
+        input_ids = item["input_ids"]
 
         labels = copy.deepcopy(input_ids)
-        sep_idx = labels.index(self.separator) + 1
-        labels[:sep_idx] = [-100] * sep_idx
+        # sep_idx = labels.index(self.separator) + 1
+        sep_idx = (labels == self.separator).int().argmax().item() + 1
+        labels[:sep_idx] = -100
 
         return {
             "input_ids": torch.tensor(input_ids, dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
-            "chunk_input_ids": torch.tensor(chunk_input_ids, dtype=torch.long)
+            "chunk_input_ids": torch.tensor(item["chunk_input_ids"], dtype=torch.long),
+            "chunk_positions": item["chunk_positions"]
         }
     
 
@@ -137,11 +143,14 @@ class CoTDataCollatorAssignedChunks:
         input_ids = [item["input_ids"] for item in items]
         labels = [item["labels"] for item in items]
         chunk_input_ids = [item["chunk_input_ids"] for item in items]
+        chunk_positions = [item["chunk_positions"] for item in items]
 
         input_ids = pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.eos_token_id)
         labels = pad_sequence(labels, batch_first=True, padding_value=-100)
+        chunk_input_ids = pad_sequence(chunk_input_ids, batch_first=True, padding_value=-100)
         return {
             'input_ids': input_ids,
             'labels': labels,
-            'chunk_input_ids': chunk_input_ids
+            'chunk_input_ids': chunk_input_ids,
+            'chunk_positions': chunk_positions
         }
