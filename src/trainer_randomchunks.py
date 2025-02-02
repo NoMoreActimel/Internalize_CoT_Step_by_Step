@@ -23,8 +23,8 @@ def compute_lambda_distribution(removal_smoothing_lambda, truncate_length=100):
 
 
 class RandomChunksTrainer(BaseTrainer):
-    def __init__(self, model, optimizer, tokenizer, train_dataloader, val_dataloader, test_dataloader, use_fused, args, start_id):
-        super().__init__(model, optimizer, tokenizer, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
+    def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args, start_id):
+        super().__init__(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
         self.chunk_size = args.chunk_size
         self.chunk_removal_schedule = args.chunk_removal_schedule
         self.schedule_index = 0

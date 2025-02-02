@@ -22,8 +22,8 @@ def compute_lambda_distribution(removal_smoothing_lambda, truncate_length=100):
 
 
 class StepByStepTrainer(BaseTrainer):
-    def __init__(self, model, optimizer, tokenizer, train_dataloader, val_dataloader, test_dataloader, use_fused, args):
-        super().__init__(model, optimizer, tokenizer, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
+    def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args):
+        super().__init__(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
         self.scheduled_to_remove = 0
         if args.remove_start_from > 0:
             print (f'the number of removed CoT tokens starts from {args.remove_start_from}')

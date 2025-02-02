@@ -94,8 +94,9 @@ def load_data(args, tokenizer, new_token_ids=None):
     if args.test_path:
         test_dataset = DatasetClass(tokenizer, args.test_path, **default_dataset_args)
         test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=False)
+        return train_dataloader, val_dataloader, test_dataloader
     
-    return train_dataloader, val_dataloader, test_dataloader
+    return train_dataloader, val_dataloader, None
 
 
 def main():
@@ -167,27 +168,27 @@ def main():
     if args.removal_type == "random-chunks":
         model, tokenizer, new_token_ids = add_new_tokens(model, tokenizer, args.num_new_tokens + 1)
         start_id, new_token_ids = new_token_ids[0], new_token_ids[1:]
+    else:
+        new_token_ids = None
 
     # Load Data
-    train_dataloader, val_dataloader, test_dataloader = load_data(args, model, tokenizer, new_token_ids)
+    train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)
 
     # Create Optimizer
-    trainable_params = sum([p.numel() for p in model.parameters() if p.requires_grad])
+    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
     use_fused = 'fused' in inspect.signature(torch.optim.AdamW).parameters
     extra_args = dict(fused=True) if use_fused else dict()
     optimizer = torch.optim.AdamW(trainable_params, lr=args.lr, **extra_args)
 
+    # Train
     if args.removal_type == "step-by-step":
-        trainer = StepByStepTrainer(model, optimizer, tokenizer, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
+        trainer = StepByStepTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
     elif args.removal_type == 'random-chunks':
-        trainer = RandomChunksTrainer(model, optimizer, tokenizer, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
+        trainer = RandomChunksTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args, start_id)
     else:
         raise ValueError(f'args.removal_type must be either "step-by-step" or "random-chunks", found {args.removal_type}')
     
     trainer.train()
-
-    # Train
-
 
 
 if __name__ == "__main__":
