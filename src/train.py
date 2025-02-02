@@ -145,6 +145,10 @@ def main():
     parser.set_defaults(keep_position=False)
     parser.add_argument('--reinitialize_weights', action='store_true')
     parser.set_defaults(reinitialize_weights=False)
+
+    parser.add_argument('--wandb_project', type=str, default=None)
+    parser.add_argument('--wandb_run_name', type=str, default=None)
+
     args = parser.parse_args()
 
     if args.remove_all_when_remove_beyond == 'inf':
