@@ -19,7 +19,7 @@ def get_chunks_positions(sample, tokenizer, chunk_size):
 
     left_border, right_border = first_sep_positions.item() + 1, second_sep_positions.item()
 
-    chunk_positions = list(range(left_border, right_border + chunk_size - 1, chunk_size))
+    chunk_positions = list(range(left_border, right_border, chunk_size))
     return chunk_positions
 
 def assign_new_tokens_to_chunks(chunk_positions, new_token_ids):

@@ -178,8 +178,14 @@ class RandomChunksTrainer(BaseTrainer):
             input_ids_cur = input_ids[batch_idx].detach().clone()
             labels_cur = labels[batch_idx].detach().clone()
 
+            shifts = torch.zeros_like(input_ids_cur)
+
             for chunk_idx, start in masked_chunks:
                 end = min(start + self.chunk_size, right_border)
+                shift = shifts[start].item()
+                shifts[start:] += end - start - 2
+                start, end = start - shift, end - shift
+
                 chunk_id = chunk_input_ids[batch_idx, chunk_idx]
                 input_ids_cur = torch.cat((
                     input_ids_cur[:start],
@@ -199,7 +205,7 @@ class RandomChunksTrainer(BaseTrainer):
                 ), dim=-1)
 
                 if self.args.keep_position:
-                    position_ids[batch_idx, start + 2:] += end - start + 2
+                    position_ids[batch_idx, start + 2:] += end - start - 2
 
             input_ids_new.append(input_ids_cur)
             labels_new.append(labels_cur)

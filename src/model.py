@@ -155,20 +155,20 @@ class ImplicitModel(nn.Module):
             decode=False
     ):
         batch_size = input_ids.shape[0]
-        start_id_tensor = torch.full((batch_size, 1), fill_value=new_tokens_start_id, dtype=torch.long)
-        eos_count = torch.zeros(batch_size, dtype=torch.long)
+        start_id_tensor = torch.full((batch_size, 1), new_tokens_start_id, dtype=torch.long).to(input_ids.device)
+        eos_count = torch.zeros(batch_size, dtype=torch.long).to(input_ids.device)
         
         input_ids_generated = input_ids
         position_ids_generated = position_ids
         with torch.no_grad():
-            for _ in range(max_new_tokens):
+            for _ in range(0, max_new_tokens, 2):
                 outputs = self.base_model(input_ids=input_ids_generated, position_ids=position_ids_generated)
                 next_token_logits = outputs.logits[:, -1, :]
 
                 next_token_ids = torch.argmax(next_token_logits, dim=-1, keepdim=True)
                 input_ids_generated = torch.cat([input_ids_generated, next_token_ids, start_id_tensor], dim=1)
 
-                eos_count[next_token_ids == self.tokenizer.eos_token_id] += 1
+                eos_count[next_token_ids.squeeze(1) == self.tokenizer.eos_token_id] += 1
                 if stopping_criteria is not None and (eos_count >= 2).all():
                     break
                 elif (eos_count >= 1).all():
