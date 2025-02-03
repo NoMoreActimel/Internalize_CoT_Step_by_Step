@@ -103,14 +103,6 @@ def parse_tuple_list(arg):
     except ValueError:
         raise argparse.ArgumentTypeError("Schedule must be in the format '(a,b)' with integers.")
 
-parser = argparse.ArgumentParser()
-
-# Parse arguments
-args = parser.parse_args()
-
-# Output parsed tuples
-print(args.pairs)
-
 
 def main():
     parser = argparse.ArgumentParser()
