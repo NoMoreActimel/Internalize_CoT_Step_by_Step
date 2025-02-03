@@ -155,6 +155,8 @@ class ImplicitModel(nn.Module):
             new_tokens_start_id,
             decode=False
     ):
+        # POSITION_IDS MAY WORK IMPROPERLY, NOT DEBUGGED
+
         device = input_ids.device
         batch_size = input_ids.shape[0]
 
@@ -196,8 +198,9 @@ class ImplicitModel(nn.Module):
                             ans_mask[i] = False
                             eos_count[i] += 1
 
-                if stopping_criteria is not None and (eos_count >= 2).all():
-                    break
+                if stopping_criteria is not None:
+                    if (eos_count >= 2).all():
+                        break
                 elif (eos_count >= 1).all():
                     break
         
@@ -227,11 +230,10 @@ class ImplicitModel(nn.Module):
             for i in mask_indices
         ], dim=0)
         
-        if position_ids_list is not None:
-            position_ids_masked = torch.cat([
-                position_ids_list[i].unsqueeze(0)
-                for i in mask_indices
-            ], dim=0)
+        position_ids_masked = torch.cat([
+            position_ids_list[i].unsqueeze(0)
+            for i in mask_indices
+        ], dim=0) if position_ids_list is not None else None
 
         outputs_masked = self.base_model(input_ids=input_ids_masked, position_ids=position_ids_masked)
         next_token_logits_masked = outputs_masked.logits[:, -1, :]
