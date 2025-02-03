@@ -27,8 +27,8 @@ def evaluate(dataloader, tokenizer, device, ctx, model, max_new_tokens):
     total_correct = 0
     total_time = 0
     for batch in tqdm.tqdm(dataloader):
-        input_ids_all = batch['input_ids_all'].to(device)
-        labels = batch['labels_all'].to(device)
+        input_ids_all = batch['input_ids'].to(device)
+        labels = batch['labels'].to(device)
         # Remove answer part
         sep_positions = get_sep_position(input_ids_all, tokenizer.eos_token_id)
         input_ids = input_ids_all[:, :sep_positions.max()+1]

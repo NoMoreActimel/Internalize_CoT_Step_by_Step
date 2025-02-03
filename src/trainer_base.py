@@ -87,8 +87,8 @@ class BaseTrainer:
         total_loss = 0
 
         for batch_idx, batch in tqdm.tqdm(enumerate(dataloader)):
-            input_ids_all = batch['input_ids_all'].to(self.device)
-            labels_all = batch['labels_all'].to(self.device)
+            input_ids_all = batch['input_ids'].to(self.device)
+            labels_all = batch['labels'].to(self.device)
 
             input_ids_all, labels_all, position_ids_all, _ = self.process_input_truncation(batch, **truncation_kwargs)
 

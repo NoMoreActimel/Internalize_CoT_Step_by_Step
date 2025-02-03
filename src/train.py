@@ -97,6 +97,21 @@ def load_data(args, tokenizer, new_token_ids=None):
     return train_dataloader, val_dataloader, None
 
 
+def parse_tuple_list(arg):
+    try:
+        return [tuple(map(int, pair.strip("()").split(","))) for pair in arg.split()]
+    except ValueError:
+        raise argparse.ArgumentTypeError("Schedule must be in the format '(a,b)' with integers.")
+
+parser = argparse.ArgumentParser()
+
+# Parse arguments
+args = parser.parse_args()
+
+# Output parsed tuples
+print(args.pairs)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='gpt2')
@@ -116,8 +131,10 @@ def main():
 
     parser.add_argument('--remove_by_schedule', action='store_true')
     parser.set_defaults(remove_when_flat_loss=True)
-    parser.add_argument('--chunk_removal_schedule', type=list, default=[(0, 0), (20, 1), (30, 2), (40, 3), (50, -1)]) 
+
     # List of tuples: (from_epoch, n_chunks_removed), where n_chunks_removed == -1 -> remove all chunks
+    default_schedule = "(0,0) (10,1) (30,2) (40,3) (50,-1)"
+    parser.add_argument("--chunk_removal_schedule", type=parse_tuple_list, default=parse_tuple_list(default_schedule))
 
     parser.add_argument('--remove_when_flat_loss', action='store_true')
     parser.set_defaults(remove_when_flat_loss=False)

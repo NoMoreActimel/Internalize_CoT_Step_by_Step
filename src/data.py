@@ -131,7 +131,7 @@ class CoTDataCollator:
         input_ids_all = self._tensorize_batch(input_ids_all)
         input_ids_all[input_ids_all.lt(0)] = self.tokenizer.eos_token_id
         labels_all = self._tensorize_batch(labels_all)
-        return {'input_ids_all': input_ids_all, 'labels_all': labels_all}
+        return {'input_ids': input_ids_all, 'labels': labels_all}
 
     def _tensorize_batch(self, examples):
         # In order to accept both lists of lists and lists of Tensors
@@ -162,7 +162,7 @@ class CoTDataCollatorWithTokenization:
         input_ids_all = self._tensorize_batch(input_ids_all)
         input_ids_all[input_ids_all.lt(0)] = self.tokenizer.eos_token_id
         labels_all = self._tensorize_batch(labels_all)
-        return {'input_ids_all': input_ids_all, 'labels_all': labels_all}
+        return {'input_ids': input_ids_all, 'labels': labels_all}
 
     def _tokenize_batch(self, examples):
         input_ids_all, labels_all = [], []

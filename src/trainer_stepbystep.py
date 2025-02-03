@@ -140,8 +140,8 @@ class StepByStepTrainer(BaseTrainer):
     
 
     def process_input_truncation(self, batch, epoch, disable_random_removal_offset=False):
-        input_ids = batch['input_ids_all'].to(self.device)
-        labels = batch['labels_all'].to(self.device)
+        input_ids = batch['input_ids'].to(self.device)
+        labels = batch['labels'].to(self.device)
 
         if not (self.scheduled_to_remove > 0 or self.args.removal_smoothing_lambda != float('inf')):
             return input_ids, labels, None, False # all_cot_removed_in_batch

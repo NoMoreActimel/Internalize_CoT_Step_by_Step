@@ -43,7 +43,7 @@ def add_new_tokens(model, tokenizer, num_new_tokens):
 
 
 class CoTDatasetAssignedChunks(Dataset):
-    def __init__(self, model, tokenizer, file_path, max_length=-1, max_size=-1, chunk_size=8, num_new_tokens=1000, new_token_ids=None):
+    def __init__(self, tokenizer, file_path, max_length=-1, max_size=-1, chunk_size=8, num_new_tokens=1000, new_token_ids=None):
         """
             This dataset precomputes chunk positions for each of the samples in the file_path,
             assigning randomly sampled new_token_ids for each chunk.
@@ -53,7 +53,7 @@ class CoTDatasetAssignedChunks(Dataset):
         assert os.path.isfile(file_path), f"Input file path {file_path} not found"
         print (f'Creating features from dataset file at {file_path}')
 
-        self.tokenizer, self.new_token_ids = model, tokenizer, new_token_ids
+        self.tokenizer, self.new_token_ids = tokenizer, new_token_ids
         
         self.eos_tok = self.tokenizer.eos_token
         self.separator = tokenizer.eos_token_id

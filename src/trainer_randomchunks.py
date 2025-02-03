@@ -35,9 +35,8 @@ class RandomChunksTrainer(BaseTrainer):
 
         self.start_id = start_id
         self.chunk_size = args.chunk_size
-        self.n_chunks_to_remove = self.chunk_removal_schedule[self.schedule_index]
+        self.n_chunks_to_remove = self.chunk_removal_schedule[self.schedule_index][1]
 
-        # NOT SUPPORTED
         # USED WITH REMOVE_WHEN_FLAT_LOSS:
         if self.remove_when_flat_loss and args.n_chunks_to_remove_from_start > 0:
             print (f'the number of removed CoT chunks starts from {args.n_chunks_to_remove_from_start}')
@@ -69,7 +68,7 @@ class RandomChunksTrainer(BaseTrainer):
             if self.remove_by_schedule and self.schedule_index + 1 < len(self.chunk_removal_schedule):
                 if self.chunk_removal_schedule[self.schedule_index + 1][0] == epoch:
                     self.schedule_index += 1
-                    self.n_chunks_to_remove = self.chunk_removal_schedule[self.schedule_index]
+                    self.n_chunks_to_remove = self.chunk_removal_schedule[self.schedule_index][1]
                     if self.args.reset_optimizer and (not all_cot_removed_in_batch):
                         self._reset_optimizer()
 
