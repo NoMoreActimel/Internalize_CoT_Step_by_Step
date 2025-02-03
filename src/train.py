@@ -113,12 +113,15 @@ def main():
     # RANDOM CHUNK REMOVAL
     parser.add_argument('--chunk_size', type=int, default=8)
     parser.add_argument('--num_new_tokens', type=int, default=1000)
+
+    parser.add_argument('--remove_by_schedule', action='store_true')
+    parser.set_defaults(remove_when_flat_loss=True)
     parser.add_argument('--chunk_removal_schedule', type=list, default=[(0, 0), (20, 1), (30, 2), (40, 3), (50, -1)]) 
     # List of tuples: (from_epoch, n_chunks_removed), where n_chunks_removed == -1 -> remove all chunks
 
-    parser.add_argument('--n_chunks_to_remove_from_start', type=int, default=0) # USED WITH REMOVE_WHEN_FLAT_LOSS
     parser.add_argument('--remove_when_flat_loss', action='store_true')
     parser.set_defaults(remove_when_flat_loss=False)
+    parser.add_argument('--n_chunks_to_remove_from_start', type=int, default=0) # used with remove_when_flat_loss
     
     # ORIGINAL STEP-BY-STEP REMOVAL
     parser.add_argument('--remove_per_epoch', type=float, default=8)

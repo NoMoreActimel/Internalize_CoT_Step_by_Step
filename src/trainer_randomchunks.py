@@ -25,15 +25,19 @@ def compute_lambda_distribution(removal_smoothing_lambda, truncate_length=100):
 class RandomChunksTrainer(BaseTrainer):
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args, start_id):
         super().__init__(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
-        self.chunk_size = args.chunk_size
+
+        self.remove_by_schedule = args.remove_by_schedule
         self.chunk_removal_schedule = args.chunk_removal_schedule
         self.schedule_index = 0
+
         self.remove_when_flat_loss = args.remove_when_flat_loss
         self.flat_loss_threshold = 0.05
-        self.start_id = start_id
 
+        self.start_id = start_id
+        self.chunk_size = args.chunk_size
         self.n_chunks_to_remove = self.chunk_removal_schedule[self.schedule_index]
 
+        # NOT SUPPORTED
         # USED WITH REMOVE_WHEN_FLAT_LOSS:
         if self.remove_when_flat_loss and args.n_chunks_to_remove_from_start > 0:
             print (f'the number of removed CoT chunks starts from {args.n_chunks_to_remove_from_start}')
@@ -62,7 +66,7 @@ class RandomChunksTrainer(BaseTrainer):
                 self.writer.add_scalar("epoch", epoch)
             self.model.train()
 
-            if self.schedule_index + 1 < len(self.chunk_removal_schedule):
+            if self.remove_by_schedule and self.schedule_index + 1 < len(self.chunk_removal_schedule):
                 if self.chunk_removal_schedule[self.schedule_index + 1][0] == epoch:
                     self.schedule_index += 1
                     self.n_chunks_to_remove = self.chunk_removal_schedule[self.schedule_index]

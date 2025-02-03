@@ -32,17 +32,8 @@ class BaseTrainer:
     def setup_metrics(self):
         if self.args.wandb_project:
             self.writer = WanDBWriter(self.args)
-            metric_names = [
-                "train_loss", "train_perplexity", "train_token_accuracy",
-                "val_loss", "val_perplexity", "val_accuracy", "val_token_accuracy",
-                "grad_norm",
-            ]
-            if self.args.test_path:
-                metric_names += [
-                    "test_loss", "test_perplexity", "test_accuracy", "test_token_accuracy"
-                ]
             self.metrics_tracker = MetricTracker(
-                *metric_names,
+                *["loss", "perplexity", "accuracy", "token_accuracy", "grad_norm"],
                 writer=self.writer
             )
     
@@ -87,6 +78,8 @@ class BaseTrainer:
     @torch.no_grad()
     def evaluate(self, dataloader, name, truncation_kwargs, generation_kwargs):
         self.model.eval()
+        self.metrics_tracker.reset()
+
         total_instances = 0
         total_tokens = 0
         total_correct = 0
