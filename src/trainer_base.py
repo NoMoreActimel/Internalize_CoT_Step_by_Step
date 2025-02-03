@@ -156,14 +156,14 @@ class BaseTrainer:
             "config": self.config,
         }
 
-        filename = str(self.args.save_model / "checkpoint-epoch{}.pth".format(epoch))
+        filename = str(self.args.save_model + "/checkpoint-epoch{}.pth".format(epoch))
 
         if not (only_best and save_best):
             torch.save(state, filename)
             print("Saving checkpoint: {} ...".format(filename))
         
         if save_best:
-            best_path = str(self.args.save_model / "model_best.pth")
+            best_path = str(self.args.save_model + "/model_best.pth")
             torch.save(state, best_path)
             print("Saving current best: model_best.pth ...")
 

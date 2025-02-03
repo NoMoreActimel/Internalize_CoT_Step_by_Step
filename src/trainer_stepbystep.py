@@ -135,8 +135,11 @@ class StepByStepTrainer(BaseTrainer):
                 if self.args.test_path:
                     if self.writer: self.writer.set_step(step, mode="test")
                     self.evaluate(self.test_dataloader, "test", self.val_truncation_kwargs, self.val_generation_kwargs)
-                
-            self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
+                self._save_checkpoint(epoch=self.epoch, save_best=True, only_best=True)
+            
+            if epoch % 5 == 0:
+                # self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
+                self._save_checkpoint(epoch=self.epoch, save_best=False)
     
 
     def process_input_truncation(self, batch, epoch, disable_random_removal_offset=False):
