@@ -35,14 +35,14 @@ class BaseTrainer:
             metric_names = [
                 "train_loss", "train_perplexity", "train_token_accuracy",
                 "val_loss", "val_perplexity", "val_accuracy", "val_token_accuracy",
-                "grad norm",
+                "grad_norm",
             ]
             if self.args.test_path:
                 metric_names += [
                     "test_loss", "test_perplexity", "test_accuracy", "test_token_accuracy"
                 ]
             self.metrics_tracker = MetricTracker(
-                metric_names,
+                *metric_names,
                 writer=self.writer
             )
     
@@ -62,6 +62,12 @@ class BaseTrainer:
             norm_type,
         )
         return total_norm.item()
+    
+    def _reset_optimizer(self):
+        print ('RESETTING OPTIMIZER')
+        self.optimizer.zero_grad(set_to_none=True)
+        del self.optimizer
+        self.optimizer = torch.optim.AdamW(self.get_trainable_params(), lr=self.args.lr, **{"fused": self.use_fused})
     
     def train(self):
         try:
@@ -87,7 +93,7 @@ class BaseTrainer:
         total_correct_tokens = 0
         total_loss = 0
 
-        for batch in tqdm.tqdm(dataloader):
+        for batch_idx, batch in tqdm.tqdm(enumerate(dataloader)):
             input_ids_all = batch['input_ids_all'].to(self.device)
             labels_all = batch['labels_all'].to(self.device)
 
@@ -105,40 +111,41 @@ class BaseTrainer:
 
             # Generate + Evaluate
             # input_ids_all are cut to the start of COTs inside the model.generate
-            first_sep_positions = get_sep_position(input_ids_all, self.tokenizer.eos_token_id)
-            beam_outputs = self.model.generate(
-                input_ids=input_ids_all,
-                position_ids=position_ids_all,
-                **generation_kwargs
-            )
+            if batch_idx % 100 == 0:
+                first_sep_positions = get_sep_position(input_ids_all, self.tokenizer.eos_token_id)
+                beam_outputs = self.model.generate(
+                    input_ids=input_ids_all,
+                    position_ids=position_ids_all,
+                    **generation_kwargs
+                )
 
-            for i, (input_ids_all_i, beam_output_i) in enumerate(zip(input_ids_all, beam_outputs)):
-                tgt = input_ids_all_i[first_sep_positions[i] + 1:]
-                tgt_text = self.tokenizer.decode(tgt, skip_special_tokens=True)
-                ans = extract_answer(tgt_text)
+                for i, (input_ids_all_i, beam_output_i) in enumerate(zip(input_ids_all, beam_outputs)):
+                    tgt = input_ids_all_i[first_sep_positions[i] + 1:]
+                    tgt_text = self.tokenizer.decode(tgt, skip_special_tokens=True)
+                    ans = extract_answer(tgt_text)
 
-                pred_text = self.tokenizer.decode(beam_output_i[0][first_sep_positions[i] + 1:], skip_special_tokens=True)
-                pred_ans = extract_answer(pred_text)
-                if ans == pred_ans:
-                    total_correct += 1
+                    pred_text = self.tokenizer.decode(beam_output_i[0][first_sep_positions[i] + 1:], skip_special_tokens=True)
+                    pred_ans = extract_answer(pred_text)
+                    if ans == pred_ans:
+                        total_correct += 1
+                    
+                    query = self.tokenizer.decode(input_ids_all_i[:first_sep_positions[i]], skip_special_tokens=True)
+
+                    print (f'Input: {query}')
+                    print (f'Target: {tgt_text}')
+                    print (f'Predicted: {pred_text}')
+                    print ('')
                 
-                query = self.tokenizer.decode(input_ids_all_i[:first_sep_positions[i]], skip_special_tokens=True)
-
-                print (f'Input: {query}')
-                print (f'Target: {tgt_text}')
-                print (f'Predicted: {pred_text}')
-                print ('')
-            
         accuracy = total_correct / total_instances
         token_accuracy = total_correct_tokens / total_tokens
         loss = total_loss / total_tokens
         ppl = math.exp(loss)
 
         if self.metrics_tracker:
-            self.metrics_tracker.update(f"{name}_loss", loss)
-            self.metrics_tracker.update(f"{name}_perplexity", ppl)
-            self.metrics_tracker.update(f"{name}_accuracy", accuracy)
-            self.metrics_tracker.update(f"{name}_token_accuracy", token_accuracy)
+            self.metrics_tracker.update("loss", loss)
+            self.metrics_tracker.update("perplexity", ppl)
+            self.metrics_tracker.update("accuracy", accuracy)
+            self.metrics_tracker.update("token_accuracy", token_accuracy)
             self.log_scalars(self.metrics_tracker)
             self.metrics_tracker.reset()
 

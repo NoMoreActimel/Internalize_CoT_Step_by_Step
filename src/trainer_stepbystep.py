@@ -37,30 +37,26 @@ class StepByStepTrainer(BaseTrainer):
         # print(self.lambda_distribution.tolist()[:10])
 
         self.val_truncation_kwargs = {
-                "epoch": self.args.pretrain_epochs,
-                "disable_random_removal_offset": True
-            }
+            "epoch": self.args.pretrain_epochs,
+            "disable_random_removal_offset": True
+        }
         self.val_generation_kwargs = {
             "max_new_tokens": self.args.max_new_tokens,
             "stop_on_two_eos": True,
         }
-    
-    def _reset_optimizer(self):
-        print ('RESETTING OPTIMIZER')
-        self.optimizer.zero_grad(set_to_none=True)
-        del self.optimizer
-        self.optimizer = torch.optim.AdamW(self.get_trainable_params(), lr=self.args.lr, **{"fused": self.use_fused})
 
     def _train_process(self):
         step = 0
-        if self.writer: self.writer.set_step(step)
+        if self.writer: self.writer.set_step(step, mode="train")
 
         best_val_accuracy = float('-inf')
         all_cot_removed_in_batch = False
 
         for epoch in range(self.args.epochs):
             self.epoch = epoch
-            if self.writer: self.writer.add_scalar("epoch", epoch)
+            if self.writer:
+                self.writer.set_step(step, mode="train")
+                self.writer.add_scalar("epoch", epoch)
                 
             self.model.train()
 
@@ -88,11 +84,8 @@ class StepByStepTrainer(BaseTrainer):
                 if self.scheduled_to_remove >= self.args.remove_all_when_remove_beyond:
                     self.scheduled_to_remove = float('inf') # remove all
 
-                input_ids = batch['input_ids_all'].to(self.device)
-                labels = batch['labels_all'].to(self.device)
-
                 input_ids, labels, position_ids, all_cot_removed_in_batch = self.process_input_truncation(
-                    input_ids, labels, epoch, disable_random_removal_offset=False
+                    batch, epoch, disable_random_removal_offset=False
                 )
 
                 if not all_cot_removed_in_batch:
@@ -117,9 +110,9 @@ class StepByStepTrainer(BaseTrainer):
                     self.optimizer.zero_grad(set_to_none=True)
                 
                 if self.metrics_tracker:
-                    self.metrics_tracker.update("train_loss", loss.item())
-                    self.metrics_tracker.update("train_perplexity", loss.exp().item())
-                    self.metrics_tracker.update("train_token_accuracy", outputs.token_accuracy.item())
+                    self.metrics_tracker.update("loss", loss.item())
+                    self.metrics_tracker.update("perplexity", loss.exp().item())
+                    self.metrics_tracker.update("token_accuracy", outputs.token_accuracy.item())
                     self.metrics_tracker.update("grad_norm", grad_norm)
 
                 if step % 100 == 0:
@@ -132,14 +125,15 @@ class StepByStepTrainer(BaseTrainer):
                         self.writer.add_scalar("learning rate", self.optimizer.param_groups[0]['lr'])
 
                 step += 1
-                if self.writer: self.writer.set_step(step)
-                    
+            
+            if self.writer: self.writer.set_step(step, mode="val")
             accuracy, token_accuracy, ppl = self.evaluate(self.val_dataloader, "val", self.val_truncation_kwargs, self.val_generation_kwargs)
 
             if accuracy > best_val_accuracy:
                 print ('***best so far or removed more CoT tokens***')
                 best_val_accuracy = accuracy
                 if self.args.test_path:
+                    if self.writer: self.writer.set_step(step, mode="test")
                     self.evaluate(self.test_dataloader, "test", self.val_truncation_kwargs, self.val_generation_kwargs)
                 
             self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
