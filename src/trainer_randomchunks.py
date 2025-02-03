@@ -148,6 +148,20 @@ class RandomChunksTrainer(BaseTrainer):
         chunk_positions = batch['chunk_positions']
 
         if n_chunks_to_remove == 0:
+            eos_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=2)
+            if (eos_positions != input_ids.shape[1]).any():
+                input_ids_new = [
+                    input_ids[batch_idx, :eos_positions[batch_idx] + 1]
+                    for batch_idx in range(input_ids.shape[0])
+                ]
+                labels_new = [
+                    labels[batch_idx, :eos_positions[batch_idx] + 1]
+                    for batch_idx in range(input_ids.shape[0])
+                ]
+                input_ids_new = batch_ids(input_ids_new, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
+                labels_new = batch_ids(labels_new, -100, self.device, input_ids.dtype)
+                return input_ids_new, labels_new, None, False
+
             return input_ids, labels, None, False # all_cot_removed_in_batch
         
         batch_size = input_ids.shape[0]
