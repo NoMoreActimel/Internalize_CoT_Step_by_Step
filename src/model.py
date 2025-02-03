@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from torch.nn import CrossEntropyLoss
+from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteriaList, GenerationConfig, LogitsProcessorList
 import sys
 
@@ -154,43 +155,99 @@ class ImplicitModel(nn.Module):
             new_tokens_start_id,
             decode=False
     ):
+        device = input_ids.device
         batch_size = input_ids.shape[0]
-        start_id_tensor = torch.full((batch_size, 1), new_tokens_start_id, dtype=torch.long).to(input_ids.device)
-        eos_count = torch.zeros(batch_size, dtype=torch.long).to(input_ids.device)
+
+        start_id_tensor = torch.tensor([new_tokens_start_id], dtype=torch.long).to(device)
+
+        eos_count = torch.zeros(batch_size, dtype=torch.long).to(device)
+
+        # When generating COT, append next_token + start_id
+        # When generating answer, append next_token only
+        # So we need to process two batches separately, updating corresponding masks each time
+        cot_mask = torch.ones(batch_size, dtype=torch.bool).to(device)
+        ans_mask = torch.zeros(batch_size, dtype=torch.bool).to(device)
         
-        input_ids_generated = input_ids
-        position_ids_generated = position_ids
+        input_ids_list = [x for x in input_ids]
+        position_ids_list = [x for x in position_ids] if position_ids else None
+
+        # Prepend start_ids
+        for i in range(batch_size):
+            self._expand_with_next_tokens(input_ids_list, position_ids_list, [start_id_tensor], i=i)
+
         with torch.no_grad():
             for _ in range(0, max_new_tokens, 2):
-                outputs = self.base_model(input_ids=input_ids_generated, position_ids=position_ids_generated)
-                next_token_logits = outputs.logits[:, -1, :]
+                next_token_ids_list = [None for _ in range(batch_size)]
+                self._generate_with_new_tokens_masked_step(input_ids_list, position_ids_list, next_token_ids_list, cot_mask)
+                self._generate_with_new_tokens_masked_step(input_ids_list, position_ids_list, next_token_ids_list, ans_mask)
+                
+                for i, next_token_id in enumerate(next_token_ids_list):
+                    if cot_mask[i]:
+                        if next_token_id.item() == self.tokenizer.eos_token_id:
+                            self._expand_with_next_tokens(input_ids_list, position_ids_list, [next_token_id], i)
+                            cot_mask[i] = False
+                            ans_mask[i] = True
+                            eos_count[i] += 1
+                        else:
+                            self._expand_with_next_tokens(input_ids_list, position_ids_list, [next_token_id, start_id_tensor], i)
+                    elif ans_mask[i]:
+                        self._expand_with_next_tokens(input_ids_list, position_ids_list, [next_token_id], i)
+                        if next_token_id.item() == self.tokenizer.eos_token_id:
+                            ans_mask[i] = False
+                            eos_count[i] += 1
 
-                next_token_ids = torch.argmax(next_token_logits, dim=-1, keepdim=True)
-                input_ids_generated = torch.cat([input_ids_generated, next_token_ids, start_id_tensor], dim=1)
-
-                eos_count[next_token_ids.squeeze(1) == self.tokenizer.eos_token_id] += 1
                 if stopping_criteria is not None and (eos_count >= 2).all():
                     break
                 elif (eos_count >= 1).all():
                     break
-                
-                if position_ids_generated is not None:
-                    new_position_ids = torch.arange(
-                        input_ids_generated.shape[1] - 2, input_ids_generated.shape[1]
-                    ).unsqueeze(0).expand(batch_size, -1)
-                    position_ids_generated = torch.cat([position_ids_generated, new_position_ids], dim=1)
+        
+        input_ids = pad_sequence(input_ids_list, batch_first=True, padding_value=self.tokenizer.eos_token_id)
 
         if not decode:
-            return input_ids_generated
+            return input_ids
     
-        generated_sep_positions = get_sep_position(input_ids_generated, self.tokenizer.eos_token_id, 2)
+        generated_sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, 2)
         texts_generated = []
 
-        for i, input_ids_i in enumerate(input_ids_generated):
-            input_ids_i = input_ids_i[:generated_sep_positions[i]]                              # SHOULD WE CUT ?
+        for i, input_ids_i in enumerate(input_ids):
+            input_ids_i = input_ids_i[:generated_sep_positions[i]]
             texts_generated.append(self.tokenizer.decode(input_ids_i, skip_special_tokens=True))
         
-        return input_ids_generated, texts_generated
+        return input_ids, texts_generated
+
+    def _generate_with_new_tokens_masked_step(self, input_ids_list, position_ids_list, next_token_ids_list, mask):
+        if not mask.sum():
+            return
+        
+        batch_size = len(input_ids_list)
+        mask_indices = [i for i in range(batch_size) if mask[i]]
+
+        input_ids_masked = torch.cat([
+            input_ids_list[i].unsqueeze(0)
+            for i in mask_indices
+        ], dim=0)
+        
+        if position_ids_list is not None:
+            position_ids_masked = torch.cat([
+                position_ids_list[i].unsqueeze(0)
+                for i in mask_indices
+            ], dim=0)
+
+        outputs_masked = self.base_model(input_ids=input_ids_masked, position_ids=position_ids_masked)
+        next_token_logits_masked = outputs_masked.logits[:, -1, :]
+        next_token_ids_masked = torch.argmax(next_token_logits_masked, dim=-1, keepdim=True)
+
+        for i, next_token_id in zip(mask_indices, next_token_ids_masked):
+            next_token_ids_list[i] = torch.tensor([next_token_id], dtype=torch.long).to(input_ids_list[i].device)
+        
+    def _expand_with_next_tokens(self, input_ids_list, position_ids_list, next_tokens_list, i):
+        input_ids_list[i] = torch.cat([input_ids_list[i], *next_tokens_list], dim=0)
+
+        if position_ids_list is not None:
+            new_position_ids = torch.arange(
+                input_ids_list[i].shape[0] - len(next_tokens_list), input_ids_list[i].shape[0]
+            )
+            position_ids_list[i] = torch.cat([position_ids_list[i], new_position_ids], dim=0)
 
     @classmethod
     def from_pretrained(self, pretrained_path):
