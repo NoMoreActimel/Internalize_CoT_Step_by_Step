@@ -22,18 +22,20 @@ class BaseTrainer:
         self.epoch = 0
         self.writer = None
         self.metrics_tracker = None
-        self.setup_metrics()
 
         self.device = device
         self.ptdtype = torch.bfloat16 if args.bf16 else torch.float32
         self.ctx = torch.amp.autocast(device_type='cuda', dtype=self.ptdtype)
         self.use_fused = use_fused
 
-    def setup_metrics(self):
+    def setup_metrics(self, additional_metrics=None):
         if self.args.wandb_project:
             self.writer = WanDBWriter(self.args)
+            if additional_metrics is None:
+                additional_metrics = []
             self.metrics_tracker = MetricTracker(
                 *["loss", "perplexity", "accuracy", "token_accuracy", "grad_norm"],
+                *additional_metrics,
                 writer=self.writer
             )
     

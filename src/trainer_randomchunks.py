@@ -52,6 +52,8 @@ class RandomChunksTrainer(BaseTrainer):
             "use_new_tokens": True,
             "new_tokens_start_id": self.start_id
         }
+
+        self.setup_metrics(additional_metrics=["n_chunks_to_remove"])
     
     def _train_process(self):
         step = 0
@@ -110,17 +112,18 @@ class RandomChunksTrainer(BaseTrainer):
                     self.optimizer.step()
                     self.optimizer.zero_grad(set_to_none=True)
 
-                if self.metrics_tracker:
+                if self.metrics_tracker is not None:
                     self.metrics_tracker.update("loss", loss.item())
                     self.metrics_tracker.update("perplexity", loss.exp().item())
                     self.metrics_tracker.update("token_accuracy", outputs.token_accuracy.item())
                     self.metrics_tracker.update("grad_norm", grad_norm)
+                    self.metrics_tracker.update("n_chunks_to_remove", self.n_chunks_to_remove)
                 
                 if step % 100 == 0:
                     token_accuracy = outputs.token_accuracy.item()
                     ppl = loss.exp().item()
                     print (f"Step: {step}. PPL: {ppl}. Token Accuracy: {token_accuracy}")
-                    if self.metrics_tracker:
+                    if self.metrics_tracker is not None:
                         self.log_scalars(self.metrics_tracker)
                         self.metrics_tracker.reset()
                         self.writer.add_scalar("learning rate", self.optimizer.param_groups[0]['lr'])
