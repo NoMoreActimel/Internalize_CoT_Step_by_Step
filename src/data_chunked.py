@@ -74,7 +74,7 @@ class CoTDatasetAssignedChunks(Dataset):
             for line in f.readlines():
                 if (len(line.strip()) > 0 and not line.strip().isspace() and len(line.strip().split('||')) == 2):
                     lines.append(line.strip().split('||'))
-                    if self.max_size and len(lines) >= self.max_size:
+                    if self.max_size > 0 and len(lines) >= self.max_size:
                         break
 
         return lines
