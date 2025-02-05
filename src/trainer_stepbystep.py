@@ -140,7 +140,7 @@ class StepByStepTrainer(BaseTrainer):
                     self.evaluate(self.test_dataloader, "test", self.val_truncation_kwargs, self.val_generation_kwargs)
                 self._save_checkpoint(epoch=self.epoch, save_best=True, only_best=True)
             
-            if epoch % 5 == 0:
+            if epoch % 5 == 0 or epoch == self.args.epochs - 1:
                 # self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
                 self._save_checkpoint(epoch=self.epoch, save_best=False)
     
