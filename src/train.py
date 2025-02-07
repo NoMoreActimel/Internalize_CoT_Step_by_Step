@@ -124,9 +124,9 @@ def main():
 
     parser.add_argument('--remove_chunks_step_by_step', action='store_true')
     parser.set_defaults(remove_chunks_step_by_step=True)
-    
+
     parser.add_argument('--remove_by_schedule', action='store_true')
-    parser.set_defaults(remove_when_flat_loss=False)
+    parser.set_defaults(remove_by_schedule=False)
 
     # List of tuples: (from_epoch, n_chunks_removed), where n_chunks_removed == -1 -> remove all chunks
     default_schedule = "(0,0) (10,1) (30,2) (40,3) (50,-1)"
