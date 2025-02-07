@@ -196,7 +196,7 @@ class ChunkRemovalTrainer(BaseTrainer):
         right_border = second_sep_positions[batch_idx]
         start = first_sep_positions[batch_idx]
         remove_all_chunks = n_chunks_to_remove == len(chunk_positions[batch_idx])
-        end = chunk_positions[batch_idx][n_chunks_to_remove] if remove_all_chunks else right_border
+        end = chunk_positions[batch_idx][n_chunks_to_remove] if not remove_all_chunks else right_border
         return start, end
 
     def _step_by_step_substitution(
