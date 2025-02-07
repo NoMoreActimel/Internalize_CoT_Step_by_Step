@@ -36,7 +36,7 @@ class ChunkRemovalTrainer(BaseTrainer):
         self.start_id = start_id
         self.chunk_size = args.chunk_size
 
-        self.step_by_step = args.remove_chunks_step_by_step
+        self.remove_step_by_step = args.remove_chunks_step_by_step
         self.n_chunks_to_remove = self.chunk_removal_schedule[self.schedule_index][1]
 
         # USED WITH REMOVE_WHEN_FLAT_LOSS:
@@ -77,7 +77,7 @@ class ChunkRemovalTrainer(BaseTrainer):
                         self._reset_optimizer()
 
             if self.remove_when_flat_loss and len(loss_log) >= 2:
-                if loss_log[-1] - loss_log[-2] < self.flat_loss_threshold:
+                if torch.abs(loss_log[-1] - loss_log[-2]) < self.flat_loss_threshold:
                     self.n_chunks_to_remove += 1
                     if self.args.reset_optimizer and (not all_cot_removed_in_batch):
                         self._reset_optimizer()
@@ -170,7 +170,7 @@ class ChunkRemovalTrainer(BaseTrainer):
 
             return input_ids, labels, None, False # all_cot_removed_in_batch
 
-        if self.step_by_step:
+        if self.remove_step_by_step:
             return self._step_by_step_chunks_truncation(
                 input_ids, labels, chunk_input_ids, chunk_positions,
                 n_chunks_to_remove, mask_new_tokens_in_labels
@@ -208,16 +208,20 @@ class ChunkRemovalTrainer(BaseTrainer):
             position_ids,
             start,
             end,
-            eos_positions,
+            eos_position,
             mask_new_tokens_in_labels
     ):         
         batch_size = input_ids.shape[0]
         mask_input_ids = []
         mask_labels = []
+        
+        if n_chunks_to_remove == -1:
+            n_chunks_to_remove = chunk_input_ids.shape[-1]
+
         for i in range(n_chunks_to_remove):
             mask_input_ids.append(torch.full((batch_size, 1), self.start_id).to(self.device))
             mask_input_ids.append(chunk_input_ids[:, [i]])
-            mask_labels.append(torch.full(batch_size, 1), -100).to(self.device)
+            mask_labels.append(torch.full((batch_size, 1), -100).to(self.device))
             if mask_new_tokens_in_labels:
                 mask_labels.append(torch.full((batch_size, 1), -100).to(self.device))
             else:
@@ -226,14 +230,14 @@ class ChunkRemovalTrainer(BaseTrainer):
         mask_labels = torch.cat(mask_labels, dim=-1)
 
         input_ids = torch.cat([
-            input_ids[:, start],
+            input_ids[:, :start],
             mask_input_ids,
-            input_ids[end:eos_positions + 1]
+            input_ids[:, end:eos_position + 1]
         ], dim=-1)
         labels = torch.cat([
-            labels[:, start - 1],
+            labels[:, :start - 1],
             mask_labels,
-            labels[end - 1:eos_positions + 1]
+            labels[:, end - 1:eos_position + 1]
         ], dim=-1)
         
         if self.args.keep_position:
@@ -265,9 +269,10 @@ class ChunkRemovalTrainer(BaseTrainer):
                 first_sep_positions, second_sep_positions, chunk_positions,
                 n_chunks_to_remove, batch_idx=0
             )
+            cot_end = eos_positions[0]
             input_ids, labels, position_ids = self._step_by_step_substitution(
                 input_ids, labels, chunk_input_ids, n_chunks_to_remove, position_ids,
-                start, end, eos_positions, mask_new_tokens_in_labels
+                start, end, cot_end, mask_new_tokens_in_labels
             )
             nonmasked_lengths = nonmasked_lengths - (end - start)
         else:
@@ -276,10 +281,11 @@ class ChunkRemovalTrainer(BaseTrainer):
                     first_sep_positions, second_sep_positions, chunk_positions,
                     n_chunks_to_remove, batch_idx=batch_idx
                 )
+                cot_end = eos_positions[batch_idx]
                 input_ids_new, labels_new, position_ids_new = self._step_by_step_substitution(
                     input_ids[[batch_idx]], labels[[batch_idx]], chunk_input_ids[[batch_idx]],
                     n_chunks_to_remove, position_ids[[batch_idx]] if self.args.keep_position else None,
-                    start, end, eos_positions, mask_new_tokens_in_labels
+                    start, end, cot_end, mask_new_tokens_in_labels
                 )
                 input_ids[batch_idx] = input_ids_new.squeeze(0)
                 labels[batch_idx] = labels_new.squeeze(0)
