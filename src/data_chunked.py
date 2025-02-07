@@ -23,7 +23,7 @@ def get_chunks_positions(sample, tokenizer, chunk_size):
     return chunk_positions
 
 def assign_new_tokens_to_chunks(chunk_positions, new_token_ids):
-    chunk_new_token_ids = list(random.sample(new_token_ids, len(chunk_positions)))
+    chunk_new_token_ids = list(random.choices(new_token_ids, k=len(chunk_positions)))
     return chunk_new_token_ids
 
 def add_new_tokens(model, tokenizer, num_new_tokens):    
