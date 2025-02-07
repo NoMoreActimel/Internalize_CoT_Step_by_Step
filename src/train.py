@@ -121,8 +121,12 @@ def main():
     parser.add_argument('--chunk_size', type=int, default=8)
     parser.add_argument('--num_new_tokens', type=int, default=1000)
 
+
+    parser.add_argument('--remove_chunks_step_by_step', action='store_true')
+    parser.set_defaults(remove_chunks_step_by_step=True)
+    
     parser.add_argument('--remove_by_schedule', action='store_true')
-    parser.set_defaults(remove_when_flat_loss=True)
+    parser.set_defaults(remove_when_flat_loss=False)
 
     # List of tuples: (from_epoch, n_chunks_removed), where n_chunks_removed == -1 -> remove all chunks
     default_schedule = "(0,0) (10,1) (30,2) (40,3) (50,-1)"
