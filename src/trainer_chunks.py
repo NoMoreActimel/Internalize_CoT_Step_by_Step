@@ -22,7 +22,7 @@ def compute_lambda_distribution(removal_smoothing_lambda, truncate_length=100):
     return lambda_distribution
 
 
-class RandomChunksTrainer(BaseTrainer):
+class ChunkRemovalTrainer(BaseTrainer):
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args, start_id):
         super().__init__(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
 
@@ -35,6 +35,8 @@ class RandomChunksTrainer(BaseTrainer):
 
         self.start_id = start_id
         self.chunk_size = args.chunk_size
+
+        self.step_by_step = args.remove_chunks_step_by_step
         self.n_chunks_to_remove = self.chunk_removal_schedule[self.schedule_index][1]
 
         # USED WITH REMOVE_WHEN_FLAT_LOSS:
@@ -131,15 +133,15 @@ class RandomChunksTrainer(BaseTrainer):
                 step += 1
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
-            if self.writer: self.writer.set_step(step, mode="val")
-            accuracy, token_accuracy, ppl = self.evaluate(self.val_dataloader, "val", self.val_truncation_kwargs, self.val_generation_kwargs)
+            # if self.writer: self.writer.set_step(step, mode="val")
+            # accuracy, token_accuracy, ppl = self.evaluate(self.val_dataloader, "val", self.val_truncation_kwargs, self.val_generation_kwargs)
 
-            if accuracy > best_val_accuracy:
-                print ('***best so far or removed more CoT tokens***')
-                best_val_accuracy = accuracy
-                if self.args.test_path:
-                    if self.writer: self.writer.set_step(step, mode="test")
-                    self.evaluate(self.test_dataloader, "test", self.val_truncation_kwargs, self.val_generation_kwargs)
+            # if accuracy > best_val_accuracy:
+            #     print ('***best so far or removed more CoT tokens***')
+            #     best_val_accuracy = accuracy
+            #     if self.args.test_path:
+            #         if self.writer: self.writer.set_step(step, mode="test")
+            #         self.evaluate(self.test_dataloader, "test", self.val_truncation_kwargs, self.val_generation_kwargs)
             
             if epoch % 5 == 0 or epoch == self.args.epochs - 1:
                 self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
@@ -167,14 +169,141 @@ class RandomChunksTrainer(BaseTrainer):
                 return input_ids_new, labels_new, None, False
 
             return input_ids, labels, None, False # all_cot_removed_in_batch
-        
-        batch_size = input_ids.shape[0]
 
+        if self.step_by_step:
+            return self._step_by_step_chunks_truncation(
+                input_ids, labels, chunk_input_ids, chunk_positions,
+                n_chunks_to_remove, mask_new_tokens_in_labels
+            )
+        
+        return self._random_chunks_truncation(
+            input_ids, labels, chunk_input_ids, chunk_positions,
+            n_chunks_to_remove, mask_new_tokens_in_labels
+        )
+    
+    def _get_sep_positions(self, input_ids):
         first_sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id)
         second_sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=1)
         eos_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=2)
+        return first_sep_positions, second_sep_positions, eos_positions
 
-        nonmasked_lenghts = second_sep_positions - first_sep_positions - 1
+    @staticmethod
+    def same_elements(x):
+        return (x == x[0]).all()
+
+    @staticmethod
+    def _get_chunk_borders(first_sep_positions, second_sep_positions, chunk_positions, n_chunks_to_remove, batch_idx):
+        right_border = second_sep_positions[batch_idx]
+        start = first_sep_positions[batch_idx]
+        remove_all_chunks = n_chunks_to_remove == len(chunk_positions[batch_idx])
+        end = chunk_positions[batch_idx][n_chunks_to_remove] if remove_all_chunks else right_border
+        return start, end
+
+    def _step_by_step_substitution(
+            self,
+            input_ids,
+            labels,
+            chunk_input_ids,
+            n_chunks_to_remove,
+            position_ids,
+            start,
+            end,
+            eos_positions,
+            mask_new_tokens_in_labels
+    ):         
+        batch_size = input_ids.shape[0]
+        mask_input_ids = []
+        mask_labels = []
+        for i in range(n_chunks_to_remove):
+            mask_input_ids.append(torch.full((batch_size, 1), self.start_id).to(self.device))
+            mask_input_ids.append(chunk_input_ids[:, [i]])
+            mask_labels.append(torch.full(batch_size, 1), -100).to(self.device)
+            if mask_new_tokens_in_labels:
+                mask_labels.append(torch.full((batch_size, 1), -100).to(self.device))
+            else:
+                mask_labels.append(chunk_input_ids[:, [i]])
+        mask_input_ids = torch.cat(mask_input_ids, dim=-1)
+        mask_labels = torch.cat(mask_labels, dim=-1)
+
+        input_ids = torch.cat([
+            input_ids[:, start],
+            mask_input_ids,
+            input_ids[end:eos_positions + 1]
+        ], dim=-1)
+        labels = torch.cat([
+            labels[:, start - 1],
+            mask_labels,
+            labels[end - 1:eos_positions + 1]
+        ], dim=-1)
+        
+        if self.args.keep_position:
+            position_ids[:, start + 2:] += end - start - 2
+        
+        return input_ids, labels, position_ids
+
+    def _step_by_step_chunks_truncation(
+            self,
+            input_ids,
+            labels,
+            chunk_input_ids,
+            chunk_positions,
+            n_chunks_to_remove,
+            mask_new_tokens_in_labels
+    ):
+        batch_size = input_ids.shape[0]
+        first_sep_positions, second_sep_positions, eos_positions = self._get_sep_positions(input_ids)
+        nonmasked_lengths = second_sep_positions - first_sep_positions - 1
+        
+        all_cot_removed_in_batch = True
+        position_ids = torch.arange(
+            0, input_ids.shape[-1], dtype=torch.long, device=self.device
+        ).unsqueeze(0).repeat(batch_size, 1) if self.args.keep_position else None
+
+        if self.same_elements(nonmasked_lengths) and self.same_elements(first_sep_positions):
+            # ALL COT HAVE THE SAME SIZE AND POSITION
+            start, end = self._get_chunk_borders(
+                first_sep_positions, second_sep_positions, chunk_positions,
+                n_chunks_to_remove, batch_idx=0
+            )
+            input_ids, labels, position_ids = self._step_by_step_substitution(
+                input_ids, labels, chunk_input_ids, n_chunks_to_remove, position_ids,
+                start, end, eos_positions, mask_new_tokens_in_labels
+            )
+            nonmasked_lengths = nonmasked_lengths - (end - start)
+        else:
+            for batch_idx in range(batch_size):
+                start, end = self._get_chunk_borders(
+                    first_sep_positions, second_sep_positions, chunk_positions,
+                    n_chunks_to_remove, batch_idx=batch_idx
+                )
+                input_ids_new, labels_new, position_ids_new = self._step_by_step_substitution(
+                    input_ids[[batch_idx]], labels[[batch_idx]], chunk_input_ids[[batch_idx]],
+                    n_chunks_to_remove, position_ids[[batch_idx]] if self.args.keep_position else None,
+                    start, end, eos_positions, mask_new_tokens_in_labels
+                )
+                input_ids[batch_idx] = input_ids_new.squeeze(0)
+                labels[batch_idx] = labels_new.squeeze(0)
+                if self.args.keep_position:
+                    position_ids[batch_idx] = position_ids_new.squeeze(0)
+                nonmasked_lengths[batch_idx] = nonmasked_lengths[batch_idx] - (end - start)
+        
+        if nonmasked_lengths.sum():
+            all_cot_removed_in_batch = False
+        
+        return input_ids, labels, position_ids, all_cot_removed_in_batch
+    
+    def _random_chunks_truncation(
+            self,
+            input_ids,
+            labels,
+            chunk_input_ids,
+            chunk_positions,
+            n_chunks_to_remove,
+            mask_new_tokens_in_labels
+    ):
+        batch_size = input_ids.shape[0]
+        first_sep_positions, second_sep_positions, eos_positions = self._get_sep_positions(input_ids)
+        nonmasked_lengths = second_sep_positions - first_sep_positions - 1
         
         all_cot_removed_in_batch = True
         input_ids_new = []
@@ -182,7 +311,7 @@ class RandomChunksTrainer(BaseTrainer):
         position_ids = torch.arange(
             0, input_ids.shape[-1], dtype=torch.long, device=self.device
         ).unsqueeze(0).repeat(batch_size, 1) if self.args.keep_position else None
-        
+
         for batch_idx in range(batch_size):
             right_border = second_sep_positions[batch_idx].item()
 
@@ -207,8 +336,8 @@ class RandomChunksTrainer(BaseTrainer):
                 chunk_id = chunk_input_ids[batch_idx, chunk_idx]
                 input_ids_cur = torch.cat((
                     input_ids_cur[:start],
-                    torch.tensor(self.start_id).unsqueeze(0).to(input_ids.device),
-                    torch.tensor(chunk_id).unsqueeze(0).to(input_ids.device),   # <- we need to place "new-token-start" token first? 
+                    torch.tensor(self.start_id).unsqueeze(0).to(self.device),
+                    torch.tensor(chunk_id).unsqueeze(0).to(self.device),   # <- we need to place "new-token-start" token first? 
                     input_ids_cur[end:eos_positions[batch_idx] + 1]             # so that model has zero loss on predicting new-token-start,
                 ), dim=-1)                                                      # but has loss on predicting the specific new token?
 
@@ -217,8 +346,8 @@ class RandomChunksTrainer(BaseTrainer):
                 
                 labels_cur = torch.cat((
                     labels_cur[:start - 1],
-                    torch.tensor(-100).unsqueeze(0).to(input_ids.device),
-                    torch.tensor(chunk_id).unsqueeze(0).to(input_ids.device),   # <- we need to replace start - 1 with -100
+                    torch.tensor(-100).unsqueeze(0).to(self.device),
+                    torch.tensor(chunk_id).unsqueeze(0).to(self.device),   # <- we need to replace start - 1 with -100
                     labels_cur[end - 1:eos_positions[batch_idx] + 1]            # and start with new-token-id ?
                 ), dim=-1)
 
@@ -227,12 +356,12 @@ class RandomChunksTrainer(BaseTrainer):
 
             input_ids_new.append(input_ids_cur)
             labels_new.append(labels_cur)
-            nonmasked_lenghts[batch_idx] = nonmasked_lenghts[batch_idx] - (end - start)
+            nonmasked_lengths[batch_idx] = nonmasked_lengths[batch_idx] - (end - start)
                 
         input_ids_new = batch_ids(input_ids_new, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
         labels_new = batch_ids(labels_new, -100, self.device, input_ids.dtype)
         
-        if nonmasked_lenghts.sum():
+        if nonmasked_lengths.sum():
             all_cot_removed_in_batch = False
             
         return input_ids_new, labels_new, position_ids, all_cot_removed_in_batch

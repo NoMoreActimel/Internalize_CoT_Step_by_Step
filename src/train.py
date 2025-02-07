@@ -15,7 +15,7 @@ from configuration_model import ImplicitModelConfig
 from data import CoTDataset, CoTDataCollator
 from data_chunked import CoTDatasetAssignedChunks, CoTDataCollatorAssignedChunks, add_new_tokens
 from trainer_stepbystep import StepByStepTrainer
-from trainer_randomchunks import RandomChunksTrainer
+from trainer_chunks import ChunkRemovalTrainer
 
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -83,7 +83,7 @@ def load_data(args, tokenizer, new_token_ids=None):
         raise ValueError(f'args.removal_type must be either "step-by-step" or "random-chunks", found {args.removal_type}')
     
     collate_fn = CollateClass(tokenizer)
-    train_dataset = DatasetClass(tokenizer, args.train_path, max_size=args.max_size, **default_dataset_args)
+    train_dataset = DatasetClass(tokenizer, args.train_path, max_size=args.truncation, **default_dataset_args)
     val_dataset = DatasetClass(tokenizer, args.val_path, **default_dataset_args)
 
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=True)
@@ -194,11 +194,12 @@ def main():
     extra_args = dict(fused=True) if use_fused else dict()
     optimizer = torch.optim.AdamW(trainable_params, lr=args.lr, **extra_args)
 
+
     # Train
     if args.removal_type == "step-by-step":
         trainer = StepByStepTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
     elif args.removal_type == 'random-chunks':
-        trainer = RandomChunksTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args, start_id)
+        trainer = ChunkRemovalTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args, start_id)
     else:
         raise ValueError(f'args.removal_type must be either "step-by-step" or "random-chunks", found {args.removal_type}')
     
