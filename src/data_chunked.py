@@ -26,7 +26,7 @@ def assign_new_tokens_to_chunks(chunk_positions, new_token_ids):
     chunk_new_token_ids = list(random.choices(new_token_ids, k=len(chunk_positions)))
     return chunk_new_token_ids
 
-def add_new_tokens(model, tokenizer, num_new_tokens):    
+def add_new_tokens(model, tokenizer, num_new_tokens):
     orig_vocab_length = len(tokenizer.get_vocab())
 
     new_tokens = [f"<ULTRA_MEGA_NEW_TOKEN_{i}" for i in range(num_new_tokens)]
@@ -100,13 +100,15 @@ class CoTDatasetAssignedChunks(Dataset):
             )
 
             input_ids = sent_encoded["input_ids"][0]
-            chunk_positions = get_chunks_positions(input_ids, self.tokenizer, self.chunk_size)
-            chunk_new_token_ids = assign_new_tokens_to_chunks(chunk_positions, self.new_token_ids)
+            if self.chunk_size:
+                chunk_positions = get_chunks_positions(input_ids, self.tokenizer, self.chunk_size)
+            if self.num_new_tokens:
+                chunk_new_token_ids = assign_new_tokens_to_chunks(chunk_positions, self.new_token_ids)
 
             examples_all.append({
                 "input_ids": input_ids,
-                "chunk_positions": chunk_positions,
-                "chunk_input_ids": chunk_new_token_ids 
+                "chunk_positions": chunk_positions if self.chunk_size else None,
+                "chunk_input_ids": chunk_new_token_ids if self.num_new_tokens else None
             })
 
             if len(examples_all) % 10000 == 0:
@@ -129,8 +131,8 @@ class CoTDatasetAssignedChunks(Dataset):
         return {
             "input_ids": torch.tensor(input_ids, dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
-            "chunk_input_ids": torch.tensor(item["chunk_input_ids"], dtype=torch.long),
-            "chunk_positions": item["chunk_positions"]
+            "chunk_input_ids": torch.tensor(item["chunk_input_ids"], dtype=torch.long) if self.num_new_tokens else None,
+            "chunk_positions": item["chunk_positions"] if self.chunk_size else None
         }
     
 
@@ -147,7 +149,8 @@ class CoTDataCollatorAssignedChunks:
 
         input_ids = pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.eos_token_id)
         labels = pad_sequence(labels, batch_first=True, padding_value=-100)
-        chunk_input_ids = pad_sequence(chunk_input_ids, batch_first=True, padding_value=-100)
+        if chunk_input_ids[0] is not None:
+            chunk_input_ids = pad_sequence(chunk_input_ids, batch_first=True, padding_value=-100)
         return {
             'input_ids': input_ids,
             'labels': labels,

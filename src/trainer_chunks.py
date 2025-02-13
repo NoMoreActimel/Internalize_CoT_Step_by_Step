@@ -27,7 +27,7 @@ class ChunkRemovalTrainer(BaseTrainer):
         super().__init__(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
 
         self.remove_by_schedule = args.remove_by_schedule
-        self.chunk_removal_schedule = args.chunk_removal_schedule
+        self.chunk_removal_schedule = args.removal_schedule
         self.schedule_index = 0
 
         self.remove_when_flat_loss = args.remove_when_flat_loss
@@ -45,7 +45,6 @@ class ChunkRemovalTrainer(BaseTrainer):
             self.scheduled_to_remove = args.n_chunks_to_remove_from_start
         
         self.val_truncation_kwargs = {
-            "n_chunks_to_remove": self.n_chunks_to_remove,
             "mask_new_tokens_in_labels": True
         }
         self.val_generation_kwargs = {
@@ -88,12 +87,8 @@ class ChunkRemovalTrainer(BaseTrainer):
             for batch in tqdm.tqdm(self.train_dataloader):
                 input_ids, labels, position_ids, all_cot_removed_in_batch = self.process_input_truncation(
                     batch,
-                    n_chunks_to_remove=self.n_chunks_to_remove,
                     mask_new_tokens_in_labels=False
                 )
-
-                if not all_cot_removed_in_batch:
-                    best_val_accuracy = float('-inf')
 
                 if self.args.max_len_train > 0 and input_ids.shape[-1] > self.args.max_len_train:
                     print ('skipped')
@@ -126,6 +121,7 @@ class ChunkRemovalTrainer(BaseTrainer):
                     ppl = loss.exp().item()
                     print (f"Step: {step}. PPL: {ppl}. Token Accuracy: {token_accuracy}")
                     if self.metrics_tracker is not None:
+                        self.writer.set_step(step, mode="train")
                         self.log_scalars(self.metrics_tracker)
                         self.metrics_tracker.reset()
                         self.writer.add_scalar("learning rate", self.optimizer.param_groups[0]['lr'])
@@ -147,13 +143,13 @@ class ChunkRemovalTrainer(BaseTrainer):
                 self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
 
 
-    def process_input_truncation(self, batch, n_chunks_to_remove, mask_new_tokens_in_labels=False):
+    def process_input_truncation(self, batch, mask_new_tokens_in_labels=False):
         input_ids = batch['input_ids'].to(self.device)
         labels = batch['labels'].to(self.device)
         chunk_input_ids = batch['chunk_input_ids'].to(self.device)
         chunk_positions = batch['chunk_positions']
 
-        if n_chunks_to_remove == 0:
+        if self.n_chunks_to_remove == 0:
             eos_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=2)
             if (eos_positions != input_ids.shape[1]).any():
                 input_ids_new = [
@@ -173,12 +169,12 @@ class ChunkRemovalTrainer(BaseTrainer):
         if self.remove_step_by_step:
             return self._step_by_step_chunks_truncation(
                 input_ids, labels, chunk_input_ids, chunk_positions,
-                n_chunks_to_remove, mask_new_tokens_in_labels
+                self.n_chunks_to_remove, mask_new_tokens_in_labels
             )
         
         return self._random_chunks_truncation(
             input_ids, labels, chunk_input_ids, chunk_positions,
-            n_chunks_to_remove, mask_new_tokens_in_labels
+            self.n_chunks_to_remove, mask_new_tokens_in_labels
         )
     
     def _get_sep_positions(self, input_ids):

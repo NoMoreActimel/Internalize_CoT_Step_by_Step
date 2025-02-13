@@ -16,6 +16,7 @@ from data import CoTDataset, CoTDataCollator
 from data_chunked import CoTDatasetAssignedChunks, CoTDataCollatorAssignedChunks, add_new_tokens
 from trainer_stepbystep import StepByStepTrainer
 from trainer_chunks import ChunkRemovalTrainer
+from trainer_masks import AuxiliarMasksRemovalTrainer
 
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -79,8 +80,17 @@ def load_data(args, tokenizer, new_token_ids=None):
             "num_new_tokens": args.num_new_tokens,
             "new_token_ids": new_token_ids
         }
+    elif args.removal_type == 'random-masks':
+        DatasetClass = CoTDatasetAssignedChunks
+        CollateClass = CoTDataCollatorAssignedChunks
+        default_dataset_args = {
+            "max_length": args.truncation,
+            "chunk_size": None,
+            "num_new_tokens": 0,
+            "new_token_ids": None
+        }
     else:
-        raise ValueError(f'args.removal_type must be either "step-by-step" or "random-chunks", found {args.removal_type}')
+        raise ValueError(f'args.removal_type must be either "step-by-step", "random-chunks", "random-masks", found {args.removal_type}')
     
     collate_fn = CollateClass(tokenizer)
     train_dataset = DatasetClass(tokenizer, args.train_path, max_size=args.truncation, **default_dataset_args)
@@ -99,7 +109,11 @@ def load_data(args, tokenizer, new_token_ids=None):
 
 def parse_tuple_list(arg):
     try:
-        return [tuple(map(int, pair.strip("()").split(","))) for pair in arg.split()]
+        pairs = [pair.strip("()").split(",") for pair in arg.split()]
+        if "." in pairs[0][1]:
+            return [(int(x), float(y)) for x, y in pairs]
+        return [(int(x), int(y)) for x, y in pairs]
+        # return [tuple(map(int, pair.strip("()").split(","))) for pair in arg.split()]
     except ValueError:
         raise argparse.ArgumentTypeError("Schedule must be in the format '(a,b)' with integers.")
 
@@ -115,7 +129,14 @@ def main():
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--accumulate', type=int, default=1)
 
-    parser.add_argument('--removal_type', type=str, choices=['step-by-step', 'random-chunks'], default='step-by-step')
+    parser.add_argument('--removal_type', type=str, choices=['step-by-step', 'random-chunks', 'random-masks'], default='step-by-step')
+
+    # RANDOM MASKS REMOVAL
+    parser.add_argument('--joint_masked_distribution', action='store_true')
+    parser.set_defaults(joint_masked_distribution=False)
+    parser.add_argument('--left_to_right_removal', action='store_ture')
+    parser.set_defaults(left_to_right_removal=False)
+    # --remove_by_schedule and --removal_schedule from next section
 
     # RANDOM CHUNK REMOVAL
     parser.add_argument('--chunk_size', type=int, default=8)
@@ -130,7 +151,7 @@ def main():
 
     # List of tuples: (from_epoch, n_chunks_removed), where n_chunks_removed == -1 -> remove all chunks
     default_schedule = "(0,0) (10,1) (30,2) (40,3) (50,-1)"
-    parser.add_argument("--chunk_removal_schedule", type=parse_tuple_list, default=parse_tuple_list(default_schedule))
+    parser.add_argument("--removal_schedule", type=parse_tuple_list, default=parse_tuple_list(default_schedule))
 
     parser.add_argument('--remove_when_flat_loss', action='store_true')
     parser.set_defaults(remove_when_flat_loss=False)
@@ -204,8 +225,10 @@ def main():
         trainer = StepByStepTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
     elif args.removal_type == 'random-chunks':
         trainer = ChunkRemovalTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args, start_id)
+    elif args.removal_type == 'random-masks':
+        trainer =  AuxiliarMasksRemovalTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
     else:
-        raise ValueError(f'args.removal_type must be either "step-by-step" or "random-chunks", found {args.removal_type}')
+        raise ValueError(f'args.removal_type must be either "step-by-step", "random-chunks" "random-masks", found {args.removal_type}')
     
     trainer.train()
 
