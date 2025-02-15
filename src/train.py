@@ -134,7 +134,7 @@ def main():
     # RANDOM MASKS REMOVAL
     parser.add_argument('--joint_masked_distribution', action='store_true')
     parser.set_defaults(joint_masked_distribution=False)
-    parser.add_argument('--left_to_right_removal', action='store_ture')
+    parser.add_argument('--left_to_right_removal', action='store_true')
     parser.set_defaults(left_to_right_removal=False)
     # --remove_by_schedule and --removal_schedule from next section
 

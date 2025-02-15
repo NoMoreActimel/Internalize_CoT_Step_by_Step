@@ -62,17 +62,19 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 self.writer.add_scalar("epoch", epoch)
             self.model.train()
 
-            FIX & DEBUG
-
             if self.remove_by_schedule and self.schedule_index + 1 < len(self.masks_removal_schedule):
                 if self.masks_removal_schedule[self.schedule_index + 1][0] == epoch:
                     self.schedule_index += 1
-                    self.removal_p = self.chunk_removal_schedule[self.schedule_index][1]
+                    self.removal_p = self.masks_removal_schedule[self.schedule_index][1]
                     if self.args.reset_optimizer and (not all_cot_removed_in_batch):
                         self._reset_optimizer()
 
             loss_log.append([])
-            print(f"Epoch {epoch}; Step {step}; Scheduled to remove: {self.n_chunks_to_remove} chunks")
+
+            print_line = f"Epoch {epoch}; Step {step}"
+            if not self.joint_masked_distrubution:
+                print_line += f"; Scheduled to remove: {self.removal_p}% of COT"
+            print(print_line)
 
             for batch in tqdm.tqdm(self.train_dataloader):
                 input_ids, labels, position_ids, all_cot_removed_in_batch = self.process_input_truncation(batch)
@@ -168,11 +170,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
     def _get_prefix_stepbystep(self, n_tokens_to_remove):
         prefix = self.tokenizer(
-            [f" ## masked {n_tokens_to_remove} ## "],
+            f" ## masked {n_tokens_to_remove} ## ",
             add_special_tokens=True,
             truncation=True,
             return_tensors="pt"
-        ).to(self.device)
+        )["input_ids"].to(self.device)
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels
 
@@ -243,11 +245,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
     def _get_prefix_random_masking(self, cot_start, removed_indices):
         prefix = self.tokenizer(
-            [f" ## masked tokens {(removed_indices - cot_start).tolist()} ## "],
+            f" ## masked tokens {(removed_indices - cot_start).tolist()} ## ",
             add_special_tokens=True,
             truncation=True,
             return_tensors="pt"
-        ).to(self.device)
+        )["input_ids"].to(self.device)
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels
 
