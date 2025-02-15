@@ -231,9 +231,9 @@ class ChunkRemovalTrainer(BaseTrainer):
             input_ids[:, end:eos_position + 1]
         ], dim=-1)
         labels = torch.cat([
-            labels[:, :start - 1],
+            labels[:, :start],
             mask_labels,
-            labels[:, end - 1:eos_position + 1]
+            labels[:, end:eos_position + 1]
         ], dim=-1)
         
         if self.args.keep_position:
@@ -347,10 +347,10 @@ class ChunkRemovalTrainer(BaseTrainer):
                     chunk_id = -100
                 
                 labels_cur = torch.cat((
-                    labels_cur[:start - 1],
+                    labels_cur[:start],
                     torch.tensor(-100).unsqueeze(0).to(self.device),
                     torch.tensor(chunk_id).unsqueeze(0).to(self.device),   # <- we need to replace start - 1 with -100
-                    labels_cur[end - 1:eos_positions[batch_idx] + 1]            # and start with new-token-id ?
+                    labels_cur[end:eos_positions[batch_idx] + 1]            # and start with new-token-id ?
                 ), dim=-1)
 
                 if self.args.keep_position:

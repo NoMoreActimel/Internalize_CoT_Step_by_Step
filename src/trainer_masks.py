@@ -136,15 +136,15 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         input_ids = batch['input_ids'].to(self.device)
         labels = batch['labels'].to(self.device)
 
-        if self.removal_p == 0.0:
+        if self.removal_p == 0.0 and not self.joint_masked_distrubution:
             eos_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=2)
             if (eos_positions != input_ids.shape[1]).any():
                 input_ids_new = [
-                    input_ids[batch_idx, :eos_positions[batch_idx] + 1]
+                    input_ids[batch_idx, :eos_positions[batch_idx]]
                     for batch_idx in range(input_ids.shape[0])
                 ]
                 labels_new = [
-                    labels[batch_idx, :eos_positions[batch_idx] + 1]
+                    labels[batch_idx, :eos_positions[batch_idx]]
                     for batch_idx in range(input_ids.shape[0])
                 ]
                 input_ids_new = batch_ids(input_ids_new, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
@@ -203,8 +203,17 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             prefix, ignored_prefix_labels = self._get_prefix_with_ignored_labels(n_tokens_to_remove)
             prefix, ignored_prefix_labels = prefix.unsqueeze(0), ignored_prefix_labels.unsquueze(0)
 
-            input_ids_new = input_ids[:, :start] + prefix + input_ids[:, end:]
-            labels_new = labels[:, :start - 1] + ignored_prefix_labels + labels[:, end - 1:eos_positions - 1]
+            input_ids_new = torch.cat([
+                input_ids[:, :start],
+                prefix,
+                input_ids[:, end:eos_positions + 1]
+            ], dim=0)
+            labels_new = torch.cat([
+                labels[:, :start],
+                ignored_prefix_labels,
+                labels[:, end:eos_positions + 1]
+            ], dim=0)
+
             position_ids[:, start + len(prefix)] += end - start - 2
             nonmasked_lengths = nonmasked_lengths - (end - start)
         else:
@@ -220,9 +229,17 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 eos = eos_positions[batch_idx]
                 prefix, ignored_prefix_labels = self._get_prefix_stepbystep(n_tokens_to_remove)
 
-                input_ids_new.append(input_ids[batch_idx, :start] + prefix + input_ids[batch_idx, end:])
-                labels_new.append(labels[batch_idx, :start - 1] + ignored_prefix_labels + labels[batch_idx, end - 1:eos - 1])
-
+                input_ids_new.append(torch.cat([
+                    input_ids[batch_idx, :start],
+                    prefix,
+                    input_ids[batch_idx, end:eos + 1]
+                ], dim=0))
+                labels_new.append(torch.cat([
+                    labels[batch_idx, :start],
+                    ignored_prefix_labels,
+                    labels[batch_idx, end:eos + 1]
+                ], dim=0))
+                
                 if self.args.keep_position:
                     position_ids[batch_idx, start + len(prefix):] += end - start - 2
                 nonmasked_lengths[batch_idx] = nonmasked_lengths[batch_idx] - (end - start)
@@ -290,13 +307,13 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 input_ids[batch_idx, :cot_start] \
                 + prefix \
                 + input_ids_cot_masked \
-                + input_ids[batch_idx, cot_end:]
+                + input_ids[batch_idx, cot_end: eos + 1]
             )
             labels_new.append(
-                labels[batch_idx, :cot_start - 1] \
+                labels[batch_idx, :cot_start] \
                 + ignored_prefix_labels \
                 + input_ids_cot_masked \
-                + labels[batch_idx, cot_end - 1:eos - 1]
+                + labels[batch_idx, cot_end:eos + 1]
             )
 
             if self.args.keep_position:
