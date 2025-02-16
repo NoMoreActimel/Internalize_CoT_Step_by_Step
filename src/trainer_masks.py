@@ -239,7 +239,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                     input_ids[batch_idx, end:eos + 1]
                 ], dim=0))
                 labels_new.append(torch.cat([
-                    labels[batch_idx, :start],
+                    labels[batch_idx, :start - 1],  # move EOS_TOKEN_ID in prefix
                     ignored_prefix_labels,
                     labels[batch_idx, end:eos + 1]
                 ], dim=0))
