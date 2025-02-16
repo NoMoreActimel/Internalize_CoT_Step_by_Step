@@ -175,6 +175,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             truncation=True,
             return_tensors="pt"
         )["input_ids"].to(self.device).squeeze(0)
+
+        eos = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
+        prefix = torch.cat([prefix, eos])
+
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels
 
@@ -200,16 +204,16 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
             start = first_sep_positions + 1
             end = start + n_tokens_to_remove
-            prefix, ignored_prefix_labels = self._get_prefix_with_ignored_labels(n_tokens_to_remove)
+            prefix, ignored_prefix_labels = self._get_prefix_stepbystep(n_tokens_to_remove)
             prefix, ignored_prefix_labels = prefix.unsqueeze(0), ignored_prefix_labels.unsquueze(0)
 
             input_ids_new = torch.cat([
-                input_ids[:, :start],
+                input_ids[:, :start - 1],  # move EOS_TOKEN_ID in prefix
                 prefix,
                 input_ids[:, end:eos_positions + 1]
             ], dim=0)
             labels_new = torch.cat([
-                labels[:, :start],
+                labels[:, :start - 1],
                 ignored_prefix_labels,
                 labels[:, end:eos_positions + 1]
             ], dim=0)
@@ -230,7 +234,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 prefix, ignored_prefix_labels = self._get_prefix_stepbystep(n_tokens_to_remove)
 
                 input_ids_new.append(torch.cat([
-                    input_ids[batch_idx, :start],
+                    input_ids[batch_idx, :start - 1],   # move EOS_TOKEN_ID in prefix
                     prefix,
                     input_ids[batch_idx, end:eos + 1]
                 ], dim=0))
@@ -267,6 +271,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             truncation=True,
             return_tensors="pt"
         )["input_ids"].to(self.device).squeeze(0)
+
+        eos = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
+        prefix = torch.cat([prefix, eos])
+
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels
 
@@ -303,18 +311,18 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
             input_ids_cot_masked = input_ids[batch_idx, remaining_indices]
 
-            input_ids_new.append(
-                input_ids[batch_idx, :cot_start] \
-                + prefix \
-                + input_ids_cot_masked \
-                + input_ids[batch_idx, cot_end: eos + 1]
-            )
-            labels_new.append(
-                labels[batch_idx, :cot_start] \
-                + ignored_prefix_labels \
-                + input_ids_cot_masked \
-                + labels[batch_idx, cot_end:eos + 1]
-            )
+            input_ids_new.append(torch.cat([
+                input_ids[batch_idx, :cot_start - 1],  # move EOS_TOKEN_ID in prefix
+                prefix,
+                input_ids_cot_masked,
+                input_ids[batch_idx, cot_end:eos + 1]
+            ]))
+            labels_new.append(torch.cat([
+                labels[batch_idx, :cot_start - 1],  # move EOS_TOKEN_ID in prefix
+                ignored_prefix_labels,
+                input_ids_cot_masked,
+                labels[batch_idx, cot_end:eos + 1]
+            ]))
 
             if self.args.keep_position:
                 mask = torch.zeros_like(input_ids[batch_idx], dtype=torch.long)
