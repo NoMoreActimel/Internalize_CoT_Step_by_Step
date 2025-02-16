@@ -59,6 +59,7 @@ class ChunkRemovalTrainer(BaseTrainer):
     def _train_process(self):
         step = 0
         if self.writer: self.writer.set_step(step, mode="train")
+        # best_val_accuracy = float('-inf')
         loss_log = []
 
         for epoch in range(self.args.epochs):
@@ -90,6 +91,8 @@ class ChunkRemovalTrainer(BaseTrainer):
                     mask_new_tokens_in_labels=False
                 )
 
+                # if not all_cot_removed_in_batch:
+                #     best_val_accuracy = float('-inf')
                 if self.args.max_len_train > 0 and input_ids.shape[-1] > self.args.max_len_train:
                     print ('skipped')
                     continue
@@ -129,8 +132,8 @@ class ChunkRemovalTrainer(BaseTrainer):
                 step += 1
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
-            # if self.writer: self.writer.set_step(step, mode="val")
-            # accuracy, token_accuracy, ppl = self.evaluate(self.val_dataloader, "val", self.val_truncation_kwargs, self.val_generation_kwargs)
+            if self.writer: self.writer.set_step(step, mode="val")
+            accuracy, token_accuracy, ppl = self.evaluate(self.val_dataloader, "val", self.val_truncation_kwargs, self.val_generation_kwargs)
 
             # if accuracy > best_val_accuracy:
             #     print ('***best so far or removed more CoT tokens***')

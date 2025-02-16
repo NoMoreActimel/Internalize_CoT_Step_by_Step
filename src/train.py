@@ -144,7 +144,7 @@ def main():
 
 
     parser.add_argument('--remove_chunks_step_by_step', action='store_true')
-    parser.set_defaults(remove_chunks_step_by_step=True)
+    parser.set_defaults(remove_chunks_step_by_step=False)
 
     parser.add_argument('--remove_by_schedule', action='store_true')
     parser.set_defaults(remove_by_schedule=False)
