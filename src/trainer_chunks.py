@@ -133,7 +133,13 @@ class ChunkRemovalTrainer(BaseTrainer):
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
             if self.writer: self.writer.set_step(step, mode="val")
-            accuracy, token_accuracy, ppl = self.evaluate(self.val_dataloader, "val", self.val_truncation_kwargs, self.val_generation_kwargs)
+            accuracy, token_accuracy, ppl = self.evaluate(
+                self.val_dataloader,
+                "val",
+                self.val_truncation_kwargs,
+                self.val_generation_kwargs,
+                perform_generative_eval=False
+            )
 
             # if accuracy > best_val_accuracy:
             #     print ('***best so far or removed more CoT tokens***')
@@ -153,19 +159,19 @@ class ChunkRemovalTrainer(BaseTrainer):
         chunk_positions = batch['chunk_positions']
 
         if self.n_chunks_to_remove == 0:
-            eos_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=2)
-            if (eos_positions != input_ids.shape[1]).any():
-                input_ids_new = [
-                    input_ids[batch_idx, :eos_positions[batch_idx] + 1]
-                    for batch_idx in range(input_ids.shape[0])
-                ]
-                labels_new = [
-                    labels[batch_idx, :eos_positions[batch_idx] + 1]
-                    for batch_idx in range(input_ids.shape[0])
-                ]
-                input_ids_new = batch_ids(input_ids_new, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
-                labels_new = batch_ids(labels_new, -100, self.device, input_ids.dtype)
-                return input_ids_new, labels_new, None, False
+            # eos_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=2)
+            # if (eos_positions != input_ids.shape[1]).any():
+            #     input_ids_new = [
+            #         input_ids[batch_idx, :eos_positions[batch_idx] + 1]
+            #         for batch_idx in range(input_ids.shape[0])
+            #     ]
+            #     labels_new = [
+            #         labels[batch_idx, :eos_positions[batch_idx] + 1]
+            #         for batch_idx in range(input_ids.shape[0])
+            #     ]
+            #     input_ids_new = batch_ids(input_ids_new, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
+            #     labels_new = batch_ids(labels_new, -100, self.device, input_ids.dtype)
+            #     return input_ids_new, labels_new, None, False
 
             return input_ids, labels, None, False # all_cot_removed_in_batch
 

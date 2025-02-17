@@ -225,19 +225,30 @@ class ImplicitModel(nn.Module):
         batch_size = len(input_ids_list)
         mask_indices = [i for i in range(batch_size) if mask[i]]
 
-        input_ids_masked = torch.cat([
-            input_ids_list[i].unsqueeze(0)
-            for i in mask_indices
-        ], dim=0)
-        
-        position_ids_masked = torch.cat([
-            position_ids_list[i].unsqueeze(0)
-            for i in mask_indices
-        ], dim=0) if position_ids_list is not None else None
+        first_length = len(input_ids_list[mask_indices[0]])
+        if not all(len(input_ids_list[i]) == first_length for i in mask_indices):
+            next_token_ids_masked = []
+            for i in mask_indices:
+                input_ids_masked = input_ids_list[i].unsqueeze(0)
+                position_ids_masked = position_ids_list[i].unsqueeze(0) if position_ids_list is not None else None
 
-        outputs_masked = self.base_model(input_ids=input_ids_masked, position_ids=position_ids_masked)
-        next_token_logits_masked = outputs_masked.logits[:, -1, :]
-        next_token_ids_masked = torch.argmax(next_token_logits_masked, dim=-1, keepdim=True)
+                outputs_masked = self.base_model(input_ids=input_ids_masked, position_ids=position_ids_masked)
+                next_token_logits_masked = outputs_masked.logits[:, -1, :]
+                next_token_ids_masked.append(torch.argmax(next_token_logits_masked, dim=-1, keepdim=True))
+        else:
+            input_ids_masked = torch.cat([
+                input_ids_list[i].unsqueeze(0)
+                for i in mask_indices
+            ], dim=0)
+            
+            position_ids_masked = torch.cat([
+                position_ids_list[i].unsqueeze(0)
+                for i in mask_indices
+            ], dim=0) if position_ids_list is not None else None
+
+            outputs_masked = self.base_model(input_ids=input_ids_masked, position_ids=position_ids_masked)
+            next_token_logits_masked = outputs_masked.logits[:, -1, :]
+            next_token_ids_masked = torch.argmax(next_token_logits_masked, dim=-1, keepdim=True)
 
         for i, next_token_id in zip(mask_indices, next_token_ids_masked):
             next_token_ids_list[i] = torch.tensor([next_token_id], dtype=torch.long).to(input_ids_list[i].device)
