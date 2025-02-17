@@ -45,7 +45,7 @@ def expand_gpt2_positions(model, args):
 def create_model(args, ptdtype, device):
     if args.from_pretrained is None:
         config = ImplicitModelConfig(base_model=args.model)
-        model = ImplicitModel(config).to(device).to(ptdtype)
+        model = ImplicitModel(config, reinitialize_weights=args.train_from_scratch).to(device).to(ptdtype)
     else:
         print (f'Loading from {args.from_pretrained}')
         model = ImplicitModel.from_pretrained(args.from_pretrained).to(device).to(ptdtype)
@@ -128,6 +128,9 @@ def main():
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--accumulate', type=int, default=1)
+
+    parser.add_argument('--train_from_scratch', action='store_true')
+    parser.set_defaults(train_from_scratch=False)
 
     parser.add_argument('--removal_type', type=str, choices=['step-by-step', 'random-chunks', 'random-masks'], default='step-by-step')
 
