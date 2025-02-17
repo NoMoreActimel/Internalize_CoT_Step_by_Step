@@ -106,7 +106,7 @@ class BaseTrainer:
 
             # Generate + Evaluate
             # input_ids_all are cut to the start of COTs inside the model.generate
-            if perform_generative_eval:
+            if perform_generative_eval and batch_idx == 0 and i <= 3:
                 first_sep_positions = get_sep_position(input_ids_all, self.tokenizer.eos_token_id)
                 beam_outputs = self.model.generate(
                     input_ids=input_ids_all,
@@ -125,13 +125,11 @@ class BaseTrainer:
                         total_correct += 1
                     
                     query = self.tokenizer.decode(input_ids_all_i[:first_sep_positions[i]], skip_special_tokens=True)
-
-                    if batch_idx == 0 and i <= 3:
-                        print (f'Input: {query}')
-                        print (f'Target: {tgt_text}')
-                        print (f'Predicted: {pred_text}')
-                        print ('')
-                    
+                    print (f'Input: {query}')
+                    print (f'Target: {tgt_text}')
+                    print (f'Predicted: {pred_text}')
+                    print ('')
+                
         accuracy = total_correct / total_instances
         token_accuracy = total_correct_tokens / total_tokens
         loss = total_loss / total_tokens

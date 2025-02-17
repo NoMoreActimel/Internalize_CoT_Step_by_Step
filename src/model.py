@@ -170,8 +170,8 @@ class ImplicitModel(nn.Module):
         cot_mask = torch.ones(batch_size, dtype=torch.bool).to(device)
         ans_mask = torch.zeros(batch_size, dtype=torch.bool).to(device)
         
-        input_ids_list = [x for x in input_ids]
-        position_ids_list = [x for x in position_ids] if position_ids else None
+        input_ids_list = [x.clone().detach() for x in input_ids]
+        position_ids_list = [x.clone().detach() for x in position_ids] if position_ids else None
 
         # Prepend start_ids
         for i in range(batch_size):
