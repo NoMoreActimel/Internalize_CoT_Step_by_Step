@@ -123,6 +123,7 @@ class StepByStepTrainer(BaseTrainer):
                     ppl = loss.exp().item()
                     print (f"Step: {step}. PPL: {ppl}. Token Accuracy: {token_accuracy}")
                     if self.metrics_tracker is not None:
+                        self.writer.set_step(step, mode="train")
                         self.log_scalars(self.metrics_tracker)
                         self.metrics_tracker.reset()
                         self.writer.add_scalar("learning rate", self.optimizer.param_groups[0]['lr'])
