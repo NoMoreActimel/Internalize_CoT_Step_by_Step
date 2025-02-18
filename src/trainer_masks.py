@@ -39,7 +39,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.left_to_right_removal = args.left_to_right_removal
         self.removal_p = self.masks_removal_schedule[self.schedule_index][1]
 
-        self.val_truncation_kwargs = {}
+        self.val_truncation_kwargs = {
+            "eval_flag": self.joint_masked_distrubution
+        }
         self.val_generation_kwargs = {
             "max_new_tokens": self.args.max_new_tokens,
             "stop_on_two_eos": True
@@ -124,7 +126,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 "val",
                 self.val_truncation_kwargs,
                 self.val_generation_kwargs,
-                perform_generative_eval=self.left_to_right_removal
+                perform_generative_eval=True
             )
 
             # if accuracy > best_val_accuracy:
@@ -138,11 +140,16 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
 
 
-    def process_input_truncation(self, batch):
+    def process_input_truncation(self, batch, eval_flag=False):
         input_ids = batch['input_ids'].to(self.device)
         labels = batch['labels'].to(self.device)
 
-        if self.removal_p == 0.0 and not self.joint_masked_distrubution:
+        if eval_flag:
+            if self.left_to_right_removal:
+                return self._step_by_step_truncation(input_ids, labels, removal_p=1.0, joint_masked_distrubution=False)
+            return self._random_truncation(input_ids, labels, removal_p=1.0, joint_masked_distrubution=False)
+
+        if self.removal_p == 0.0 and ((not self.joint_masked_distrubution) or eval_flag):
             # eos_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=2)
             # if (eos_positions != input_ids.shape[1]).any():
             #     input_ids_new = [
@@ -156,12 +163,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             #     input_ids_new = batch_ids(input_ids_new, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
             #     labels_new = batch_ids(labels_new, -100, self.device, input_ids.dtype)
             #     return input_ids_new, labels_new, None, False
-
-            return input_ids, labels, None, False # all_cot_removed_in_batch
+            return input_ids, labels, None, False
 
         if self.left_to_right_removal:
             return self._step_by_step_truncation(input_ids, labels, self.removal_p, self.joint_masked_distrubution)
-        
         return self._random_truncation(input_ids, labels, self.removal_p, self.joint_masked_distrubution)
     
     def _get_sep_positions(self, input_ids):
@@ -204,7 +209,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             0, input_ids.shape[-1], dtype=torch.long, device=self.device
         ).unsqueeze(0).repeat(batch_size, 1) if self.args.keep_position else None
 
-        if self.same_elements(nonmasked_lengths) and self.same_elements(first_sep_positions) and not joint_masked_distrubution:
+        same_cots_flag = \
+            self.same_elements(nonmasked_lengths) \
+            and self.same_elements(first_sep_positions) \
+            and not joint_masked_distrubution
+
+        if same_cots_flag:
             # ALL COT HAVE THE SAME SIZE AND POSITION
             n_tokens_to_remove = int(removal_p * nonmasked_lengths[0])
 
