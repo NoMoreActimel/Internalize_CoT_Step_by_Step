@@ -1,18 +1,21 @@
 #!/bin/bash
 
 cd /home/ss19021/Internalize_CoT_Step_by_Step/ || exit
-DIR="train_models/4_by_4_mult/gpt2_pretrained/random_masks_joint_from_scratch/"
+SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
+DIR="$SCRATCH_DIR/train_models/4_by_4_mult/gpt2_pretrained/random_masks_joint/"
 mkdir -p "$DIR"
+
+export WANDB_API_KEY="96b7c9ce4fa58a9b8254a7e3b14ef24071ecd75e"
+export WANDB_MODE="online"
 
 python src/train.py \
     --model gpt2 \
-    --train_path data/4_by_4_mult/train.txt \
-    --val_path data/4_by_4_mult/valid.txt \
+    --train_path "$SCRATCH_DIR/data/4_by_4_mult/train.txt" \
+    --val_path "$SCRATCH_DIR/data/4_by_4_mult/valid.txt" \
     --epochs 32 \
     --lr 5e-5 \
     --batch_size 64 \
     --accumulate 1 \
-    --train_from_scratch \
     --removal_type random-masks \
     --joint_masked_distribution \
     --left_to_right_removal \
