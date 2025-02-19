@@ -203,7 +203,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         if same_cots_flag:
             # ALL COT HAVE THE SAME SIZE AND POSITION
-            n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[0]))
+            n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[0].item()))
 
             start = first_sep_positions[0] + 1
             end = start + n_tokens_to_remove
@@ -232,7 +232,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             for batch_idx in range(batch_size):
                 if joint_masked_distrubution:
                     removal_p = random.uniform(0, 1)
-                n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[batch_idx]))
+                n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[batch_idx].item()))
 
                 start = first_sep_positions[batch_idx] + 1
                 end = start + n_tokens_to_remove
@@ -306,7 +306,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         for batch_idx in range(batch_size):
             if joint_masked_distrubution:
                 removal_p = random.uniform(0, 1)
-            n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[batch_idx]))
+            n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[batch_idx].item()))
 
             cot_start = first_sep_positions[batch_idx] + 1
             cot_end = second_sep_positions[batch_idx]
