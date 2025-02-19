@@ -8,19 +8,6 @@ from trainer_base import BaseTrainer
 from utils import get_sep_position, batch_ids
 
 
-def compute_lambda_distribution(removal_smoothing_lambda, truncate_length=100):
-    if removal_smoothing_lambda == float('inf'):
-        lambda_distribution = torch.zeros(truncate_length)
-        lambda_distribution[0] = 1
-    else:
-        positions = torch.arange(truncate_length)
-        lambda_distribution = (1 - math.exp(-removal_smoothing_lambda)) * positions.mul(-removal_smoothing_lambda).exp()
-        cum_prob = lambda_distribution.sum()
-        assert cum_prob <= 1
-        lambda_distribution[-1] = lambda_distribution[-1] + (1-cum_prob)
-    return lambda_distribution
-
-
 class AuxiliarMasksRemovalTrainer(BaseTrainer):
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args):
         super().__init__(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
