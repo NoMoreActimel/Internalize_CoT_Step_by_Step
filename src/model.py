@@ -58,7 +58,8 @@ class ImplicitModel(nn.Module):
             stop_on_two_eos=True,
             position_ids=None,
             use_new_tokens=False,
-            new_tokens_start_id=None
+            new_tokens_start_id=None,
+            inputs_with_cot=True
     ):
         sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id)
         batch_size = input_ids.shape[0]
@@ -76,9 +77,10 @@ class ImplicitModel(nn.Module):
             stopping_criteria = None
 
         if sep_positions.eq(sep_positions[0]).all():
-            input_ids = input_ids[:, :sep_positions[0]+1]
-            if position_ids is not None:
-                position_ids = position_ids[:, :sep_positions[0]+1]
+            if inputs_with_cot:
+                input_ids = input_ids[:, :sep_positions[0]+1]
+                if position_ids is not None:
+                    position_ids = position_ids[:, :sep_positions[0]+1]
             
             beam_output = self._generate(
                 input_ids, position_ids, generation_config, max_new_tokens, num_beams,
@@ -89,9 +91,11 @@ class ImplicitModel(nn.Module):
             beam_output = []
             for i in range(batch_size):
                 input_ids_i = input_ids[i:i+1]
-                sep_positions_i = sep_positions[i:i+1]
-                input_ids_i = input_ids_i[:, :sep_positions_i+1]
-                position_ids_i = position_ids[i:i+1, :sep_positions_i+1] if position_ids is not None else None
+                position_ids_i = position_ids[i:i+1] if position_ids is not None else None
+                if inputs_with_cot:
+                    sep_positions_i = sep_positions[i:i+1]
+                    input_ids_i = input_ids_i[:, :sep_positions_i+1]
+                    position_ids_i = position_ids_i[:, :sep_positions_i+1] if position_ids is not None else None
 
                 beam_output_i = self._generate(
                     input_ids_i, position_ids_i, generation_config, max_new_tokens, num_beams,

@@ -87,6 +87,7 @@ class BaseTrainer:
         total_correct = 0
         total_correct_tokens = 0
         total_loss = 0
+        total_generated = 0
 
         for batch_idx, batch in tqdm.tqdm(enumerate(dataloader)):
             input_ids_all = batch['input_ids'].to(self.device)
@@ -114,6 +115,8 @@ class BaseTrainer:
                     **generation_kwargs
                 )
 
+                total_generated += input_ids_all.shape[0]
+
                 for i, (input_ids_all_i, beam_output_i) in enumerate(zip(input_ids_all, beam_outputs)):
                     tgt = input_ids_all_i[first_sep_positions[i] + 1:]
                     tgt_text = self.tokenizer.decode(tgt, skip_special_tokens=True)
@@ -131,7 +134,7 @@ class BaseTrainer:
                         print (f'Predicted: {pred_text}')
                         print ('')
                 
-        accuracy = total_correct / total_instances
+        accuracy = total_correct / total_generated
         token_accuracy = total_correct_tokens / total_tokens
         loss = total_loss / total_tokens
         ppl = math.exp(loss)
