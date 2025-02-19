@@ -48,6 +48,7 @@ def create_model(args, ptdtype, device):
         model = ImplicitModel(config, reinitialize_weights=args.train_from_scratch).to(device).to(ptdtype)
     else:
         print (f'Loading from {args.from_pretrained}')
+        config = None
         model = ImplicitModel.from_pretrained(args.from_pretrained).to(device).to(ptdtype)
 
     if 'gpt2' in args.model:
@@ -239,8 +240,7 @@ def main():
         trainer.val_truncation_kwargs,
         trainer.val_generation_kwargs,
         perform_generative_eval=True
-    ))
-
+    )
 
 if __name__ == "__main__":
     main()

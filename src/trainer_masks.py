@@ -208,7 +208,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             start = first_sep_positions + 1
             end = start + n_tokens_to_remove
             prefix, ignored_prefix_labels = self._get_prefix_stepbystep(n_tokens_to_remove)
-            prefix, ignored_prefix_labels = prefix.unsqueeze(0), ignored_prefix_labels.unsquueze(0)
+            prefix, ignored_prefix_labels = prefix.unsqueeze(0), ignored_prefix_labels.unsqueeze(0)
 
             input_ids_new = torch.cat([
                 input_ids[:, :start - 1],  # move EOS_TOKEN_ID in prefix
