@@ -45,7 +45,11 @@ def expand_gpt2_positions(model, args):
 def create_model(args, ptdtype, device):
     if args.from_pretrained is None:
         config = ImplicitModelConfig(base_model=args.model)
-        model = ImplicitModel(config, reinitialize_weights=args.train_from_scratch).to(device).to(ptdtype)
+        model = ImplicitModel(
+            config,
+            reinitialize_weights=args.train_from_scratch,
+            use_flash_attention=args.flash_attention_2
+        ).to(device).to(ptdtype)
     else:
         print (f'Loading from {args.from_pretrained}')
         model = ImplicitModel.from_pretrained(args.from_pretrained).to(device).to(ptdtype)
@@ -124,40 +128,33 @@ def main():
     parser.add_argument('--train_path', type=str, required=True)
     parser.add_argument('--val_path', type=str, required=True)
     parser.add_argument('--test_path', type=str, default=None)
+
     parser.add_argument('--epochs', type=int, default=1)
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--accumulate', type=int, default=1)
 
-    parser.add_argument('--train_from_scratch', action='store_true')
-    parser.set_defaults(train_from_scratch=False)
+    parser.add_argument('--train_from_scratch', action='store_true', default=False)
 
     parser.add_argument('--removal_type', type=str, choices=['step-by-step', 'random-chunks', 'random-masks'], default='step-by-step')
 
     # RANDOM MASKS REMOVAL
-    parser.add_argument('--joint_masked_distribution', action='store_true')
-    parser.set_defaults(joint_masked_distribution=False)
-    parser.add_argument('--left_to_right_removal', action='store_true')
-    parser.set_defaults(left_to_right_removal=False)
+    parser.add_argument('--joint_masked_distribution', action='store_true', default=False)
+    parser.add_argument('--left_to_right_removal', action='store_true', default=False)
     # --remove_by_schedule and --removal_schedule from next section
 
     # RANDOM CHUNK REMOVAL
     parser.add_argument('--chunk_size', type=int, default=8)
     parser.add_argument('--num_new_tokens', type=int, default=1000)
 
-
-    parser.add_argument('--remove_chunks_step_by_step', action='store_true')
-    parser.set_defaults(remove_chunks_step_by_step=False)
-
-    parser.add_argument('--remove_by_schedule', action='store_true')
-    parser.set_defaults(remove_by_schedule=False)
+    parser.add_argument('--remove_chunks_step_by_step', action='store_true', default=False)
+    parser.add_argument('--remove_by_schedule', action='store_true', default=False)
 
     # List of tuples: (from_epoch, n_chunks_removed), where n_chunks_removed == -1 -> remove all chunks
     default_schedule = "(0,0) (10,1) (30,2) (40,3) (50,-1)"
     parser.add_argument("--removal_schedule", type=parse_tuple_list, default=parse_tuple_list(default_schedule))
 
-    parser.add_argument('--remove_when_flat_loss', action='store_true')
-    parser.set_defaults(remove_when_flat_loss=False)
+    parser.add_argument('--remove_when_flat_loss', action='store_true', default=False)
     parser.add_argument('--n_chunks_to_remove_from_start', type=int, default=0) # used with remove_when_flat_loss
     
     # ORIGINAL STEP-BY-STEP REMOVAL
@@ -175,14 +172,13 @@ def main():
     parser.add_argument('--remove_start_from', type=int, default=0)
     parser.add_argument('--seed', type=int, default=1234)
     parser.add_argument('--max_grad_norm', type=float, default=1.0)
-    parser.add_argument('--bf16', action='store_true')
-    parser.set_defaults(bf16=False)
-    parser.add_argument('--reset_optimizer', action='store_true')
-    parser.set_defaults(reset_optimizer=False)
-    parser.add_argument('--keep_position', action='store_true')
-    parser.set_defaults(keep_position=False)
-    parser.add_argument('--reinitialize_weights', action='store_true')
-    parser.set_defaults(reinitialize_weights=False)
+
+    parser.add_argument('--bf16', action='store_true', default=False)
+    parser.add_argument('--flash_attention_2', action='store_true', default=False)
+
+    parser.add_argument('--reset_optimizer', action='store_true', default=False)
+    parser.add_argument('--keep_position', action='store_true', default=False)
+    parser.add_argument('--reinitialize_weights', action='store_true', default=False)
 
     parser.add_argument('--wandb_project', type=str, default=None)
     parser.add_argument('--wandb_run_name', type=str, default=None)

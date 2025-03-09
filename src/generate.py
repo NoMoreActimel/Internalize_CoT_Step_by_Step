@@ -70,8 +70,7 @@ def main():
     parser.add_argument('--max_new_tokens', type=int, default=800)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--truncation', type=int, default=-1)
-    parser.add_argument('--bf16', action='store_true')
-    parser.set_defaults(bf16=False)
+    parser.add_argument('--bf16', action='store_true', default=False)
     args = parser.parse_args()
 
     print (args)
