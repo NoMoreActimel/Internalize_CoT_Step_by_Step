@@ -87,7 +87,7 @@ class CoTDataset(Dataset):
 
 
 class CoTDatasetWithoutTokenization(Dataset):
-    def __init__(self, file_path, max_length=-1, max_size=-1):
+    def __init__(self, file_path, max_size=-1):
         assert os.path.isfile(file_path), f"Input file path {file_path} not found"
         print (f'Creating features from dataset file at {file_path}')
 

@@ -74,12 +74,12 @@ def load_data(args, tokenizer, new_token_ids=None):
     if args.removal_type == 'step-by-step':
         DatasetClass = CoTDataset
         CollateClass = CoTDataCollator
-        default_dataset_args = {"max_length": args.truncation}
+        default_dataset_args = {"max_length": args.max_len_train}
     elif args.removal_type == 'random-chunks':
         DatasetClass = CoTDatasetAssignedChunks
         CollateClass = CoTDataCollatorAssignedChunks
         default_dataset_args = {
-            "max_length": args.truncation,
+            "max_length": args.max_len_train,
             "chunk_size": args.chunk_size,
             "num_new_tokens": args.num_new_tokens,
             "new_token_ids": new_token_ids
@@ -88,7 +88,7 @@ def load_data(args, tokenizer, new_token_ids=None):
         DatasetClass = CoTDatasetAssignedChunks
         CollateClass = CoTDataCollatorAssignedChunks
         default_dataset_args = {
-            "max_length": args.truncation,
+            "max_length": args.max_len_train,
             "chunk_size": None,
             "num_new_tokens": 0,
             "new_token_ids": None
@@ -97,7 +97,7 @@ def load_data(args, tokenizer, new_token_ids=None):
         raise ValueError(f'args.removal_type must be either "step-by-step", "random-chunks", "random-masks", found {args.removal_type}')
     
     collate_fn = CollateClass(tokenizer)
-    train_dataset = DatasetClass(tokenizer, args.train_path, max_size=args.truncation, **default_dataset_args)
+    train_dataset = DatasetClass(tokenizer, args.train_path, max_size=args.max_size, **default_dataset_args)
     val_dataset = DatasetClass(tokenizer, args.val_path, **default_dataset_args)
 
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=True)
