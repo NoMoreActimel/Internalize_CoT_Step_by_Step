@@ -108,6 +108,9 @@ class BaseTrainer:
             # Generate + Evaluate
             # input_ids_all are cut to the start of COTs inside the model.generate
             if perform_generative_eval and batch_idx == 0:
+                if generation_kwargs["position_ids_shift"] is not None:
+                    generation_kwargs["position_ids_shift"] = self.n_tokens_removed
+                
                 first_sep_positions = get_sep_position(input_ids_all, self.tokenizer.eos_token_id)
                 beam_outputs = self.model.generate(
                     input_ids=input_ids_all,
