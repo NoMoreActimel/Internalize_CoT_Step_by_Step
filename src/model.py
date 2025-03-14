@@ -65,7 +65,8 @@ class ImplicitModel(nn.Module):
             position_ids=None,
             use_new_tokens=False,
             new_tokens_start_id=None,
-            inputs_with_cot=True
+            inputs_with_cot=True,
+            position_ids_shift=None
     ):
         sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id)
         batch_size = input_ids.shape[0]
@@ -90,7 +91,8 @@ class ImplicitModel(nn.Module):
             
             beam_output = self._generate(
                 input_ids, position_ids, generation_config, max_new_tokens, num_beams,
-                logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id
+                logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
+                position_ids_shift
             )
             beam_output = beam_output.unsqueeze(1)
         else:
@@ -105,7 +107,8 @@ class ImplicitModel(nn.Module):
 
                 beam_output_i = self._generate(
                     input_ids_i, position_ids_i, generation_config, max_new_tokens, num_beams,
-                    logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id
+                    logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
+                    position_ids_shift
                 )
                 beam_output.append(beam_output_i)
         return beam_output
@@ -120,7 +123,8 @@ class ImplicitModel(nn.Module):
             logits_processor,
             stopping_criteria,
             use_new_tokens=False,
-            new_tokens_start_id=None
+            new_tokens_start_id=None,
+            position_ids_shift=None
     ):
         if use_new_tokens:
             return self._generate_with_new_tokens(
@@ -132,6 +136,16 @@ class ImplicitModel(nn.Module):
                 decode=False
             )
         if position_ids is not None:
+            if position_ids_shift:
+                # Used in case of left_to_right_removal.
+                # We need to shift position ids by the length of COT = position_ids_shift
+                beam_output = self._generate_with_shifted_position_ids(
+                    input_ids,
+                    position_ids,
+                    max_new_tokens,
+                    stopping_criteria,
+                    position_ids_shift
+                )
             beam_output = self.base_model.generate(
                 input_ids=input_ids,
                 position_ids=position_ids,
@@ -155,6 +169,38 @@ class ImplicitModel(nn.Module):
                 stopping_criteria=stopping_criteria,
             )
         return beam_output
+
+    def _generate_with_shifted_position_ids(
+            self,
+            input_ids,
+            position_ids,
+            max_new_tokens,
+            stopping_criteria,
+            position_ids_shift
+    ):
+        next_position_ids = position_ids[:, -1:] + position_ids_shift
+
+        n_new_tokens = 0
+
+        while n_new_tokens < max_new_tokens:
+            outputs = self.base_model(input_ids=input_ids, position_ids=position_ids)
+            next_token_logits = outputs.logits[:, -1, :]
+            next_token_ids = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+            next_position_ids = next_position_ids + 1
+
+            input_ids = torch.cat([input_ids, next_token_ids], dim=1)
+            position_ids = torch.cat([position_ids, next_position_ids], dim=1)
+
+            if stopping_criteria is not None:
+                if stopping_criteria(input_ids):
+                    break
+            elif (next_token_ids == self.tokenizer.eos_token_id).all():
+                break
+
+            n_new_tokens += 1
+        
+        texts_generated = self._decode_generated_ids(input_ids)
+        return input_ids, texts_generated
 
     def _generate_with_new_tokens(
             self,
@@ -218,14 +264,8 @@ class ImplicitModel(nn.Module):
 
         if not decode:
             return input_ids
-    
-        generated_sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, 2)
-        texts_generated = []
 
-        for i, input_ids_i in enumerate(input_ids):
-            input_ids_i = input_ids_i[:generated_sep_positions[i]]
-            texts_generated.append(self.tokenizer.decode(input_ids_i, skip_special_tokens=True))
-        
+        texts_generated = self._decode_generated_ids(input_ids)
         return input_ids, texts_generated
 
     def _generate_with_new_tokens_masked_step(self, input_ids_list, position_ids_list, next_token_ids_list, mask):
@@ -271,7 +311,17 @@ class ImplicitModel(nn.Module):
                 input_ids_list[i].shape[0] - len(next_tokens_list), input_ids_list[i].shape[0]
             )
             position_ids_list[i] = torch.cat([position_ids_list[i], new_position_ids], dim=0)
+    
+    def _decode_generated_ids(self, input_ids):
+        generated_sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, 2)
+        texts_generated = []
 
+        for i, input_ids_i in enumerate(input_ids):
+            input_ids_i = input_ids_i[:generated_sep_positions[i]]
+            texts_generated.append(self.tokenizer.decode(input_ids_i, skip_special_tokens=True))
+        
+        return texts_generated
+        
     @classmethod
     def from_pretrained(self, pretrained_path):
         config = ImplicitModelConfig.from_pretrained(pretrained_path)
