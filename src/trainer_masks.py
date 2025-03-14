@@ -192,9 +192,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         nonmasked_lengths = second_sep_positions - first_sep_positions - 1
         
         all_cot_removed_in_batch = True
-        position_ids = torch.arange(
-            0, input_ids.shape[-1], dtype=torch.long, device=self.device
-        ).unsqueeze(0).repeat(batch_size, 1) if self.args.keep_position else None
+        position_ids_new = None
 
         same_cots_flag = \
             self.same_elements(nonmasked_lengths) \
@@ -224,11 +222,18 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             ], dim=1)
 
             if self.args.keep_position:
-                position_ids[:, start + len(prefix)] += end - start - 2
+                position_ids_new = torch.arange(
+                    0, input_ids_new.shape[-1], dtype=torch.long, device=self.device
+                ).unsqueeze(0).repeat(batch_size, 1)
+                position_ids_new[:, start + len(prefix):] += end - start
+                position_ids_new = position_ids_new[:, :input_ids_new.shape[-1]]
+            
             nonmasked_lengths = nonmasked_lengths - (end - start)
         else:
             input_ids_new = []
             labels_new = []
+            position_ids_new = [] if self.args.keep_position else None
+
             for batch_idx in range(batch_size):
                 if joint_masked_distrubution:
                     removal_p = random.uniform(0, 1)
@@ -249,18 +254,23 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                     ignored_prefix_labels,
                     labels[batch_idx, end:eos + 1]
                 ], dim=0))
-                
+
                 if self.args.keep_position:
-                    position_ids[batch_idx, start + len(prefix):] += end - start - 2
+                    position_ids_new.append(torch.arange(
+                        0, input_ids[batch_idx].shape[-1], dtype=torch.long, device=self.device
+                    ))
+                    position_ids_new[-1][start + len(prefix):] += end - start
+                    position_ids_new[-1] = position_ids_new[-1][:input_ids_new[-1].shape[-1]]
                 nonmasked_lengths[batch_idx] = nonmasked_lengths[batch_idx] - (end - start)
             
             input_ids_new = batch_ids(input_ids_new, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
             labels_new = batch_ids(labels_new, -100, self.device, input_ids.dtype)
+            position_ids_new = batch_ids(position_ids_new, )
             
         if nonmasked_lengths.sum():
             all_cot_removed_in_batch = False
         
-        return input_ids_new, labels_new, position_ids, all_cot_removed_in_batch
+        return input_ids_new, labels_new, position_ids_new, all_cot_removed_in_batch
 
     @staticmethod
     def _get_random_cot_mask(cot_start, cot_end, n_tokens_to_remove):
