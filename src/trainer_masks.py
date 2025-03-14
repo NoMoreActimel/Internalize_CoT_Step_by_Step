@@ -32,7 +32,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.val_generation_kwargs = {
             "max_new_tokens": self.args.max_new_tokens,
             "stop_on_two_eos": True,
-            "position_ids_shift": self.joint_masked_distribution and self.left_to_right_removal
+            "position_ids_shift": self.args.keep_position and self.joint_masked_distribution and self.left_to_right_removal
         }
 
         # For generative eval in case of left_to_right_removal & joint_masked_distribution
@@ -203,7 +203,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             and self.same_elements(first_sep_positions) \
             and not joint_masked_distrubution
 
-        n_tokens_removed = None
+        n_tokens_removed = []
 
         if same_cots_flag:
             # ALL COT HAVE THE SAME SIZE AND POSITION
@@ -230,9 +230,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
             if self.args.keep_position:
                 length = max(input_ids.shape[-1], input_ids_new.shape[-1])
-                position_ids_new.append(torch.arange(
+                position_ids_new = torch.arange(
                     0, length, dtype=torch.long, device=self.device
-                )).unsqueeze(0).repeat(batch_size, 1)
+                ).unsqueeze(0).repeat(batch_size, 1)
                 position_ids_new[:, start + len(prefix) - 1:] += end - start
                 position_ids_new = position_ids_new[:, :input_ids_new.shape[-1]]
             
@@ -265,7 +265,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 ], dim=0))
 
                 if self.args.keep_position:
-                    length = max(input_ids.shape[-1], input_ids_new.shape[-1])
+                    length = max(input_ids[batch_idx].shape[-1], input_ids_new[-1].shape[-1])
                     position_ids_new.append(torch.arange(
                         0, length, dtype=torch.long, device=self.device
                     ))
@@ -275,8 +275,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             
             input_ids_new = batch_ids(input_ids_new, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
             labels_new = batch_ids(labels_new, -100, self.device, input_ids.dtype)
-            position_ids_new = batch_ids(position_ids_new, 0, self.device, torch.long)
-            n_tokens_removed = torch.tensor(n_tokens_removed, dtype=torch.long, device=self.device)
+            if self.args.keep_position:
+                position_ids_new = batch_ids(position_ids_new, 0, self.device, torch.long)
+                n_tokens_removed = torch.tensor(n_tokens_removed, dtype=torch.long, device=self.device)
 
         # For generative eval
         self.n_tokens_removed = n_tokens_removed

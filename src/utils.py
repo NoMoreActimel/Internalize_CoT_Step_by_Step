@@ -21,15 +21,29 @@ def batch_ids(input_ids_list, pad_token_id, device, dtype):
 
 
 def get_sep_position(input_ids, sep_id, skip=0):
+    def get_next_nonzero(mask, default_value=None):
+        mask_nonzero = mask.nonzero()
+        if mask_nonzero.shape[0]:
+            return mask_nonzero[0, -1].item()
+        print("Next nonzero element not found in get_sep_position!")
+        return default_value
+    
     batch_size = input_ids.shape[0]
     sep_positions = input_ids.new_zeros(batch_size).long()
+
     for batch_id in range(batch_size):
         mask = input_ids[batch_id].eq(sep_id)
-        sep_position = mask.nonzero()[0, -1].item()
-        for _ in range(skip):
-            mask[sep_position] = False
-            sep_position = mask.nonzero()[0, -1].item()
+        sep_position = get_next_nonzero(mask, input_ids.shape[1])
+
+        if sep_position < input_ids.shape[1]:
+            for _ in range(skip):
+                mask[sep_position] = False
+                sep_position = get_next_nonzero(mask, input_ids.shape[1])
+                if sep_position == input_ids.shape[1]:
+                    break
+                
         sep_positions[batch_id] = sep_position
+
     return sep_positions
 
 

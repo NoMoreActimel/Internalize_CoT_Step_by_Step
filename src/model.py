@@ -94,7 +94,8 @@ class ImplicitModel(nn.Module):
                 logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
                 position_ids_shift
             )
-            beam_output = beam_output.unsqueeze(1)
+            if isinstance(beam_output, torch.Tensor):
+                beam_output = beam_output.unsqueeze(1)
         else:
             beam_output = []
             for i in range(batch_size):
@@ -136,7 +137,7 @@ class ImplicitModel(nn.Module):
                 decode=False
             )
         if position_ids is not None:
-            if position_ids_shift:
+            if position_ids_shift is not None:
                 # Used in case of left_to_right_removal.
                 # We need to shift position ids by the length of COT = position_ids_shift
                 beam_output = self._generate_with_shifted_position_ids(
@@ -146,17 +147,18 @@ class ImplicitModel(nn.Module):
                     stopping_criteria,
                     position_ids_shift
                 )
-            beam_output = self.base_model.generate(
-                input_ids=input_ids,
-                position_ids=position_ids,
-                generation_config=generation_config,
-                max_new_tokens=max_new_tokens,
-                num_beams=num_beams,
-                early_stopping=True,
-                num_return_sequences=1,
-                logits_processor=logits_processor,
-                stopping_criteria=stopping_criteria,
-            )
+            else:
+                beam_output = self.base_model.generate(
+                    input_ids=input_ids,
+                    position_ids=position_ids,
+                    generation_config=generation_config,
+                    max_new_tokens=max_new_tokens,
+                    num_beams=num_beams,
+                    early_stopping=True,
+                    num_return_sequences=1,
+                    logits_processor=logits_processor,
+                    stopping_criteria=stopping_criteria,
+                )
         else:
             beam_output = self.base_model.generate(
                 input_ids=input_ids,
@@ -176,8 +178,11 @@ class ImplicitModel(nn.Module):
             position_ids,
             max_new_tokens,
             stopping_criteria,
-            position_ids_shift
+            position_ids_shift,
+            decode=False
     ):
+        if position_ids_shift.ndim == 1:
+            position_ids_shift = position_ids_shift.unsqueeze(1)
         next_position_ids = position_ids[:, -1:] + position_ids_shift
 
         n_new_tokens = 0
@@ -192,12 +197,15 @@ class ImplicitModel(nn.Module):
             position_ids = torch.cat([position_ids, next_position_ids], dim=1)
 
             if stopping_criteria is not None:
-                if stopping_criteria(input_ids):
+                if stopping_criteria(input_ids, next_token_logits).all():
                     break
             elif (next_token_ids == self.tokenizer.eos_token_id).all():
                 break
 
             n_new_tokens += 1
+        
+        if not decode:
+            return input_ids
         
         texts_generated = self._decode_generated_ids(input_ids)
         return input_ids, texts_generated
