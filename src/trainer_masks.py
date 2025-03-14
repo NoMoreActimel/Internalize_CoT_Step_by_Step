@@ -233,6 +233,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 if joint_masked_distrubution:
                     removal_p = random.uniform(0, 1)
                 n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[batch_idx].item()))
+                # n_tokens_to_remove = nonmasked_lengths[batch_idx].item() * int(removal_p > 0.5)
 
                 start = first_sep_positions[batch_idx] + 1
                 end = start + n_tokens_to_remove
