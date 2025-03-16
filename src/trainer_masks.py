@@ -253,6 +253,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                     removal_p = random.uniform(0, 1)
 
                 n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[batch_idx].item()))
+                # n_tokens_to_remove = nonmasked_lengths[batch_idx].item() * int(removal_p > 0.5)
                 if self.no_cot_stage:
                     n_tokens_to_remove = int(nonmasked_lengths[batch_idx].item())
                 n_tokens_removed.append(n_tokens_to_remove)
