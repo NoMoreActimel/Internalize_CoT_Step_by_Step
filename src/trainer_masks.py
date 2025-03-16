@@ -37,6 +37,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         # For generative eval in case of left_to_right_removal & joint_masked_distribution
         self.n_tokens_removed = None
+        self.no_masking_prefix = args.get("no_masking_prefix", False)
 
         self.setup_metrics(additional_metrics=["removal_p"])
     
@@ -296,6 +297,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         return remaining_indices, random_indices
 
     def _get_prefix_random_masking(self, cot_start, removed_indices):
+        if self.no_masking_prefix:
+            prefix = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
+            ignored_prefix_labels = torch.full_like(prefix, -100)
+            return prefix, ignored_prefix_labels
+
         prefix = self.tokenizer(
             f" ## masked tokens {(removed_indices - cot_start).tolist()} ## ",
             add_special_tokens=True,
