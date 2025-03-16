@@ -141,8 +141,10 @@ def main():
     # RANDOM MASKS REMOVAL
     parser.add_argument('--joint_masked_distribution', action='store_true', default=False)
     parser.add_argument('--left_to_right_removal', action='store_true', default=False)
-    parser.add_argument('--no_masking_prefix', action='store_true', default=False)
-    
+
+    # if we need to remove ## removed N ## hint - fine-tune on plain no-COT data
+    parser.add_argument('--no_cot_stage', action='store_true', default=False)
+
     # --remove_by_schedule and --removal_schedule from next section
 
     # RANDOM CHUNK REMOVAL

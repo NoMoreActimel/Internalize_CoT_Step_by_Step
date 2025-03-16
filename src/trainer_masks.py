@@ -37,7 +37,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         # For generative eval in case of left_to_right_removal & joint_masked_distribution
         self.n_tokens_removed = None
-        self.no_masking_prefix = args.get("no_masking_prefix", False)
+        self.no_cot_stage = args.get("no_cot_stage", False)
 
         self.setup_metrics(additional_metrics=["removal_p"])
     
@@ -172,6 +172,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         return (x == x[0]).all()
 
     def _get_prefix_stepbystep(self, n_tokens_to_remove):
+        if self.no_cot_stage:
+            prefix = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
+            ignored_prefix_labels = torch.full_like(prefix, -100)
+            return prefix, ignored_prefix_labels
+        
         prefix = self.tokenizer(
             f" ## masked {n_tokens_to_remove} ## ",
             add_special_tokens=True,
@@ -246,7 +251,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             for batch_idx in range(batch_size):
                 if joint_masked_distrubution:
                     removal_p = random.uniform(0, 1)
+
                 n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[batch_idx].item()))
+                if self.no_cot_stage:
+                    n_tokens_to_remove = int(nonmasked_lengths[batch_idx].item())
                 n_tokens_removed.append(n_tokens_to_remove)
 
                 start = first_sep_positions[batch_idx] + 1
@@ -297,7 +305,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         return remaining_indices, random_indices
 
     def _get_prefix_random_masking(self, cot_start, removed_indices):
-        if self.no_masking_prefix:
+        if self.no_cot_stage:
             prefix = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
             ignored_prefix_labels = torch.full_like(prefix, -100)
             return prefix, ignored_prefix_labels
