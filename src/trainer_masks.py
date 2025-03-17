@@ -37,7 +37,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         # For generative eval in case of left_to_right_removal & joint_masked_distribution
         self.n_tokens_removed = None
-        self.no_cot_stage = args.get("no_cot_stage", False)
+        self.no_cot_stage = getattr(args, "no_cot_stage", False)
 
         self.setup_metrics(additional_metrics=["removal_p"])
     
