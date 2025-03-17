@@ -139,6 +139,7 @@ def main():
     parser.add_argument('--accumulate', type=int, default=1)
 
     parser.add_argument('--train_from_scratch', action='store_true', default=False)
+    parser.add_argument('--mode', type=str, choices=['train', 'eval'], default='train')
 
     parser.add_argument('--removal_type', type=str, choices=['step-by-step', 'random-chunks', 'random-masks'], default='step-by-step')
 
@@ -238,7 +239,19 @@ def main():
     else:
         raise ValueError(f'args.removal_type must be either "step-by-step", "random-chunks" "random-masks", found {args.removal_type}')
     
-    trainer.train()
+    if args.mode == "train":
+        trainer.train()
+    elif args.mode == "eval":
+        trainer.evaluate(
+            trainer.val_dataloader,
+            "val",
+            trainer.val_truncation_kwargs,
+            trainer.val_generation_kwargs,
+            perform_generative_eval=True
+        )
+    else:
+        raise ValueError(f'args.mode must be either "train" or "eval", found {args.mode}')
+
 
 
 if __name__ == "__main__":
