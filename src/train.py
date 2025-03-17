@@ -52,7 +52,10 @@ def create_model(args, ptdtype, device):
         ).to(device).to(ptdtype)
     else:
         print (f'Loading from {args.from_pretrained}')
-        model = ImplicitModel.from_pretrained(args.from_pretrained).to(device).to(ptdtype)
+        model = ImplicitModel.from_pretrained(
+            args.from_pretrained,
+            use_flash_attention=args.flash_attention_2
+        ).to(device).to(ptdtype)
 
     if 'gpt2' in args.model:
         expand_gpt2_positions(model, args)
@@ -179,6 +182,7 @@ def main():
 
     parser.add_argument('--bf16', action='store_true', default=False)
     parser.add_argument('--flash_attention_2', action='store_true', default=False)
+    # pip install flash-attn --no-build-isolation
 
     parser.add_argument('--reset_optimizer', action='store_true', default=False)
     parser.add_argument('--keep_position', action='store_true', default=False)

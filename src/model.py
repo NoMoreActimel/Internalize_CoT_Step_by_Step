@@ -12,7 +12,7 @@ from utils import get_sep_position, DoubleEOSStoppingCriteria, DoubleEOSLogitsPr
 
 
 class ImplicitModel(nn.Module):
-    def __init__(self, config, reinitialize_weights=False, use_flash_attention=True):
+    def __init__(self, config, reinitialize_weights=False, use_flash_attention=False):
         super().__init__()
 
         self.config = config
@@ -331,9 +331,9 @@ class ImplicitModel(nn.Module):
         return texts_generated
         
     @classmethod
-    def from_pretrained(self, pretrained_path):
+    def from_pretrained(self, pretrained_path, use_flash_attention=False):
         config = ImplicitModelConfig.from_pretrained(pretrained_path)
-        model = ImplicitModel(config)
+        model = ImplicitModel(config, reinitialize_weights=False, use_flash_attention=use_flash_attention)
         state_dict = torch.load(os.path.join(pretrained_path, 'state_dict.bin'))
         model.load_state_dict(state_dict, strict=True)
         return model
