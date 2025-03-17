@@ -56,6 +56,7 @@ def create_model(args, ptdtype, device):
             args.from_pretrained,
             use_flash_attention=args.flash_attention_2
         ).to(device).to(ptdtype)
+        config = model.config
 
     if 'gpt2' in args.model:
         expand_gpt2_positions(model, args)
