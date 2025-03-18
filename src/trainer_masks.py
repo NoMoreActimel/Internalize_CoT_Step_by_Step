@@ -47,8 +47,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         # best_val_accuracy = float('-inf')
         loss_log = []
 
-        if self.args.from_pretrained:
-            self._resume_checkpoint(self.args.from_pretrained)
+        if self.args.from_pretrained_checkpoint:
+            self._resume_checkpoint(self.args.from_pretrained_checkpoint)
 
         for epoch in range(self.args.epochs):
             self.epoch = epoch
