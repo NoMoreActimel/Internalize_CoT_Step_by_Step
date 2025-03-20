@@ -145,7 +145,10 @@ def main():
 
     # RANDOM MASKS REMOVAL
     parser.add_argument('--joint_masked_distribution', action='store_true', default=False)
+    # For left-to-right removal:
     parser.add_argument('--left_to_right_removal', action='store_true', default=False)
+    # For random positions:
+    parser.add_argument('--truncate_random_mask', action='store_true', default=True)
 
     # if we need to remove ## removed N ## hint - fine-tune on plain no-COT data
     parser.add_argument('--no_cot_stage', action='store_true', default=False)
