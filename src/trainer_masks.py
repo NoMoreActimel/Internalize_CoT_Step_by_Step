@@ -50,7 +50,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.setup_metrics(additional_metrics=["removal_p"])
     
     def _train_process(self):
-        step = 0
+        batch_size = self.args.batch_size
+        step = self.epoch * ((len(self.train_dataloader) + batch_size - 1) // batch_size)
         if self.writer: self.writer.set_step(step, mode="train")
         # best_val_accuracy = float('-inf')
         loss_log = []
