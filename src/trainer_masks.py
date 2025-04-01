@@ -140,7 +140,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             #         if self.writer: self.writer.set_step(step, mode="test")
             #         self.evaluate(self.test_dataloader, "test", self.val_truncation_kwargs, self.val_generation_kwargs)
             
-            if epoch % 2 == 0 or epoch == self.args.epochs - 1:
+            if epoch % 1 == 0 or epoch == self.args.epochs - 1:
                 self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
                 self._save_checkpoint(epoch, save_best=True, only_best=False)
 
