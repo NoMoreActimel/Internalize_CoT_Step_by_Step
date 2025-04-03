@@ -52,6 +52,10 @@ class StepByStepTrainer(BaseTrainer):
         step = self.epoch * ((len(self.train_dataloader) + batch_size - 1) // batch_size)
         if self.writer: self.writer.set_step(step, mode="train")
 
+        if self.args.from_pretrained_checkpoint:
+            self._resume_checkpoint(self.args.from_pretrained_checkpoint)
+
+
         # best_val_accuracy = float('-inf')
         all_cot_removed_in_batch = False
 
