@@ -41,9 +41,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         # For random masking 
         self.truncate_random_mask = getattr(args, "truncate_random_mask", True)
-        self.mask_id = self.tokenizer.encode("Mask")[0]
+        self.mask_id = torch.tensor(self.tokenizer.encode("Mask"))
         if len(self.mask_id) != 1:
-            self.mask_id = self.tokenizer.encode("M")[0]
+            self.mask_id = torch.tensor(self.tokenizer.encode("M"))
         self.mask_id = self.mask_id.to(self.device)
 
         # Metrics
