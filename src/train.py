@@ -144,11 +144,18 @@ def main():
     parser.add_argument('--removal_type', type=str, choices=['step-by-step', 'random-chunks', 'random-masks'], default='step-by-step')
 
     # RANDOM MASKS REMOVAL
+
+    # Sample N_tokens_removed for each sample independently
     parser.add_argument('--joint_masked_distribution', action='store_true', default=False)
-    # For left-to-right removal:
+
+    # Select contiguous mask of random length from left-to-right:
     parser.add_argument('--left_to_right_removal', action='store_true', default=False)
-    # For random positions:
-    parser.add_argument('--truncate_random_mask', action='store_true', default=True)
+    # Select contiguous mask of random length starting from random position 
+    parser.add_argument('--random_contiguous_removal', action='store_true', default=False)
+
+    # Select random tokens in mask to remove (default)
+    # Remove the selected mask tokens completely (replaced with mask_id by default):
+    parser.add_argument('--truncate_random_mask', action='store_true', default=False)
 
     # if we need to remove ## removed N ## hint - fine-tune on plain no-COT data
     parser.add_argument('--no_cot_stage', action='store_true', default=False)

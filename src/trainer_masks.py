@@ -24,7 +24,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         # p% of tokens are masked from left to right
         self.left_to_right_removal = args.left_to_right_removal
+        # p% of tokens are masked contiguously starting from random pos
+        self.random_contiguous_removal = args.random_contiguous_removal
+
         self.removal_p = self.masks_removal_schedule[self.schedule_index][1]
+        self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 1.0]
 
         self.val_truncation_kwargs = {
             "eval_flag": self.joint_masked_distribution
@@ -126,37 +130,37 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 step += 1
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
-            if self.writer: self.writer.set_step(step, mode="val")
-            accuracy, token_accuracy, ppl = self.evaluate(
-                self.val_dataloader,
-                "val",
-                self.val_truncation_kwargs,
-                self.val_generation_kwargs,
-                perform_generative_eval=True
-            )
+            for val_removal_p in self.val_removal_ps:
+                if self.writer:
+                    self.writer.set_step(step, mode=f"val_{val_removal_p}")
+                self.evaluate(
+                    dataloader=self.val_dataloader,
+                    name=f"val_{val_removal_p}",
+                    truncation_kwargs={"val_removal_p": val_removal_p},
+                    generation_kwargs=self.val_generation_kwargs,
+                    perform_generative_eval=True
+                )
 
-            # if accuracy > best_val_accuracy:
-            #     print ('***best so far or removed more CoT tokens***')
-            #     best_val_accuracy = accuracy
-            #     if self.args.test_path:
-            #         if self.writer: self.writer.set_step(step, mode="test")
-            #         self.evaluate(self.test_dataloader, "test", self.val_truncation_kwargs, self.val_generation_kwargs)
-            
             if epoch % 1 == 0 or epoch == self.args.epochs - 1:
                 self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
                 self._save_checkpoint(epoch, save_best=True, only_best=False)
 
 
-    def process_input_truncation(self, batch, eval_flag=False):
+    def process_input_truncation(self, batch, val_removal_p=None):
         input_ids = batch['input_ids'].to(self.device)
         labels = batch['labels'].to(self.device)
 
-        if eval_flag:
-            if self.left_to_right_removal:
-                return self._step_by_step_truncation(input_ids, labels, removal_p=1.0, joint_masked_distrubution=False)
-            return self._random_masking(input_ids, labels, removal_p=1.0, joint_masked_distrubution=False)
+        if val_removal_p is not None:
+            if self.left_to_right_removal or self.random_contiguous_removal:
+                return self.contiguous_truncation(
+                    input_ids, labels,
+                    removal_p=val_removal_p,
+                    joint_masked_distrubution=False,
+                    left_to_right=self.left_to_right_removal
+                )
+            return self.random_masking(input_ids, labels, removal_p=val_removal_p, joint_masked_distrubution=False)
 
-        if self.removal_p == 0.0 and ((not self.joint_masked_distribution) or eval_flag):
+        if self.removal_p == 0.0 and (not self.joint_masked_distribution):
             # eos_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=2)
             # if (eos_positions != input_ids.shape[1]).any():
             #     input_ids_new = [
@@ -172,9 +176,14 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             #     return input_ids_new, labels_new, None, False
             return input_ids, labels, None, False
 
-        if self.left_to_right_removal:
-            return self._step_by_step_truncation(input_ids, labels, self.removal_p, self.joint_masked_distribution)
-        return self._random_masking(input_ids, labels, self.removal_p, self.joint_masked_distribution)
+        if self.left_to_right_removal or self.random_contiguous_removal:
+            return self.contiguous_truncation(
+                input_ids, labels,
+                removal_p=self.removal_p,
+                joint_masked_distrubution=self.joint_masked_distribution,
+                left_to_right=self.left_to_right_removal
+            )
+        return self.random_masking(input_ids, labels, self.removal_p, self.joint_masked_distribution)
     
     def _get_sep_positions(self, input_ids):
         first_sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id)
@@ -186,14 +195,19 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
     def same_elements(x):
         return (x == x[0]).all()
 
-    def _get_prefix_stepbystep(self, n_tokens_to_remove):
+    def _get_prefix_contiguous_truncation(self, n_tokens_to_remove, left_to_right=True, L=0):
         if self.no_cot_stage:
             prefix = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
             ignored_prefix_labels = torch.full_like(prefix, -100)
             return prefix, ignored_prefix_labels
         
+        if left_to_right:
+            prefix_str = f" ## masked {n_tokens_to_remove} ## "
+        else:
+            prefix_str = f" ## masked {n_tokens_to_remove} from {L} ## "
+
         prefix = self.tokenizer(
-            f" ## masked {n_tokens_to_remove} ## ",
+            prefix_str,
             add_special_tokens=True,
             truncation=True,
             return_tensors="pt"
@@ -204,13 +218,69 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels
-
-    def _step_by_step_truncation(
+    
+    def _contiguous_truncation(
             self,
             input_ids,
             labels,
             removal_p,
-            joint_masked_distrubution
+            first_sep_positions,
+            eos_positions,
+            batched=False,
+            left_to_right=True
+    ):
+        length = nonmasked_lengths[0] if batched else nonmasked_lengths
+        n_tokens_to_remove = int(np.round(removal_p * length.item()))
+
+        start = first_sep_positions[0] + 1 if batched else first_sep_positions + 1
+        offset = 0 if left_to_right else random.choice(torch.arange(0, length - n_tokens_to_remove + 1))
+        start = start + offset
+        
+        end = start + n_tokens_to_remove
+        eos = eos_positions[0] if batched else eos_positions
+        prefix, ignored_prefix_labels = self._get_prefix_contiguous_truncation(n_tokens_to_remove, left_to_right, offset)
+
+        if input_ids.ndim == 2:
+            batch_size = input_ids.shape[0]
+            prefix, ignored_prefix_labels = prefix.unsqueeze(0), ignored_prefix_labels.unsqueeze(0)
+            prefix, ignored_prefix_labels = prefix.repeat(batch_size, 1), ignored_prefix_labels.repeat(batch_size, 1)
+
+        input_ids_new = torch.cat([
+            input_ids[..., :start - 1],  # move EOS_TOKEN_ID in prefix
+            prefix,
+            input_ids[..., end:eos + 1]
+        ], dim=1)
+        labels_new = torch.cat([
+            labels[..., :start - 1],
+            ignored_prefix_labels,
+            labels[..., end:eos + 1]
+        ], dim=1)
+
+        if self.args.keep_position:
+            length = max(input_ids.shape[-1], input_ids_new.shape[-1])
+
+            position_ids_new = torch.arange(
+                0, length, dtype=torch.long, device=self.device
+            )
+            if input_ids.ndim == 2:
+                position_ids_new = position_ids_new.unsqueeze(0).repeat(batch_size, 1)
+            
+            position_ids_new[..., start + len(prefix) - 1:] += end - start
+            position_ids_new = position_ids_new[..., :input_ids_new.shape[-1]]
+        else:
+            position_ids_new = None
+        
+        nonmasked_lengths = nonmasked_lengths - (end - start)
+
+        return input_ids_new, labels_new, position_ids_new, nonmasked_lengths, n_tokens_to_remove
+
+    def contiguous_truncation(
+            self,
+            input_ids,
+            labels,
+            removal_p,
+            joint_masked_distrubution,
+            left_to_right=True
     ):
         batch_size = input_ids.shape[0]
         first_sep_positions, second_sep_positions, eos_positions = self._get_sep_positions(input_ids)
@@ -224,79 +294,50 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             and self.same_elements(first_sep_positions) \
             and not joint_masked_distrubution
 
-        n_tokens_removed = []
-
         if same_cots_flag:
             # ALL COT HAVE THE SAME SIZE AND POSITION
-            n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[0].item()))
-            n_tokens_removed = torch.full((batch_size,), n_tokens_to_remove, dtype=torch.long, device=self.device)
-
-            start = first_sep_positions[0] + 1
-            end = start + n_tokens_to_remove
-            eos = eos_positions[0]
-            prefix, ignored_prefix_labels = self._get_prefix_stepbystep(n_tokens_to_remove)
-            prefix, ignored_prefix_labels = prefix.unsqueeze(0), ignored_prefix_labels.unsqueeze(0)
-            prefix, ignored_prefix_labels = prefix.repeat(batch_size, 1), ignored_prefix_labels.repeat(batch_size, 1)
-
-            input_ids_new = torch.cat([
-                input_ids[:, :start - 1],  # move EOS_TOKEN_ID in prefix
-                prefix,
-                input_ids[:, end:eos + 1]
-            ], dim=1)
-            labels_new = torch.cat([
-                labels[:, :start - 1],
-                ignored_prefix_labels,
-                labels[:, end:eos + 1]
-            ], dim=1)
-
-            if self.args.keep_position:
-                length = max(input_ids.shape[-1], input_ids_new.shape[-1])
-                position_ids_new = torch.arange(
-                    0, length, dtype=torch.long, device=self.device
-                ).unsqueeze(0).repeat(batch_size, 1)
-                position_ids_new[:, start + len(prefix) - 1:] += end - start
-                position_ids_new = position_ids_new[:, :input_ids_new.shape[-1]]
-            
-            nonmasked_lengths = nonmasked_lengths - (end - start)
+            input_ids_new, labels_new, position_ids_new, \
+                nonmasked_lengths, n_tokens_to_remove = self._contiguous_truncation(
+                input_ids,
+                labels,
+                removal_p,
+                first_sep_positions,
+                eos_positions,
+                batched=True,
+                left_to_right=left_to_right
+            )
+            n_tokens_removed = torch.full(
+                (batch_size,),
+                n_tokens_to_remove,
+                dtype=torch.long,
+                device=self.device
+            )
         else:
             input_ids_new = []
             labels_new = []
             position_ids_new = [] if self.args.keep_position else None
+            n_tokens_removed = []
 
             for batch_idx in range(batch_size):
                 if joint_masked_distrubution:
                     removal_p = random.uniform(0, 1)
 
-                n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[batch_idx].item()))
-                # n_tokens_to_remove = nonmasked_lengths[batch_idx].item() * int(removal_p > 0.5)
-                if self.no_cot_stage:
-                    n_tokens_to_remove = int(nonmasked_lengths[batch_idx].item())
+                input_ids_new_i, labels_new_i, position_ids_new_i, \
+                    nonmasked_lengths_i, n_tokens_to_remove = self._contiguous_truncation(
+                    input_ids[batch_idx],
+                    labels[batch_idx],
+                    removal_p,
+                    first_sep_positions[batch_idx],
+                    eos_positions[batch_idx],
+                    batched=False,
+                    left_to_right=left_to_right
+                )
+
+                input_ids_new.append(input_ids_new_i)
+                labels_new.append(labels_new_i)
+                position_ids_new.append(position_ids_new_i)
+                nonmasked_lengths[batch_idx] = nonmasked_lengths_i
                 n_tokens_removed.append(n_tokens_to_remove)
-
-                start = first_sep_positions[batch_idx] + 1
-                end = start + n_tokens_to_remove
-                eos = eos_positions[batch_idx]
-                prefix, ignored_prefix_labels = self._get_prefix_stepbystep(n_tokens_to_remove)
-
-                input_ids_new.append(torch.cat([
-                    input_ids[batch_idx, :start - 1],   # move EOS_TOKEN_ID in prefix -> -1
-                    prefix,
-                    input_ids[batch_idx, end:eos + 1]
-                ], dim=0))
-                labels_new.append(torch.cat([
-                    labels[batch_idx, :start - 1],  # move EOS_TOKEN_ID in prefix -> -1
-                    ignored_prefix_labels,
-                    labels[batch_idx, end:eos + 1]
-                ], dim=0))
-
-                if self.args.keep_position:
-                    length = max(input_ids[batch_idx].shape[-1], input_ids_new[-1].shape[-1])
-                    position_ids_new.append(torch.arange(
-                        0, length, dtype=torch.long, device=self.device
-                    ))
-                    position_ids_new[-1][start + len(prefix) - 1:] += end - start  # move EOS_TOKEN_ID in prefix -> -1
-                    position_ids_new[-1] = position_ids_new[-1][:input_ids_new[-1].shape[-1]]
-                nonmasked_lengths[batch_idx] = nonmasked_lengths[batch_idx] - (end - start)
             
             input_ids_new = batch_ids(input_ids_new, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
             labels_new = batch_ids(labels_new, -100, self.device, input_ids.dtype)
@@ -345,7 +386,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels        
 
-    def _random_masking(
+    def random_masking(
             self,
             input_ids,
             labels,
@@ -380,7 +421,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 labels_insert = torch.cat([ignored_prefix_labels, input_ids_cot_masked.clone()])
             else:
                 input_ids_cot_masked = input_ids[batch_idx, cot_start:cot_end].detach()
-                input_ids_cot_masked[~mask] = self.mask_id
+                input_ids_cot_masked[~mask] = self.mask_id                     # does it work with p = 1.0 ?
                 input_ids_insert = torch.cat([prefix, input_ids_cot_masked])
                 labels_insert = torch.cat([ignored_prefix_labels, input_ids_cot_masked.clone()])
 
