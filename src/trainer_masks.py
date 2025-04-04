@@ -50,16 +50,18 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.setup_metrics(additional_metrics=["removal_p"])
     
     def _train_process(self):
-        batch_size = self.args.batch_size
-        step = self.epoch * ((len(self.train_dataloader) + batch_size - 1) // batch_size)
-        if self.writer: self.writer.set_step(step, mode="train")
-        # best_val_accuracy = float('-inf')
-        loss_log = []
-
         if self.args.from_pretrained_checkpoint:
             self._resume_checkpoint(self.args.from_pretrained_checkpoint)
 
-        for epoch in range(self.args.epochs):
+        batch_size = self.args.batch_size
+        step = self.start_epoch * ((len(self.train_dataloader) + batch_size - 1) // batch_size)
+        if self.writer: self.writer.set_step(step, mode="train")
+
+        # best_val_accuracy = float('-inf')
+        loss_log = []
+
+
+        for epoch in range(self.start_epoch, self.start_epoch + self.args.epochs):
             self.epoch = epoch
             if self.writer:
                 self.writer.set_step(step, mode="train")

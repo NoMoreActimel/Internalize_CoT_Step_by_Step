@@ -20,6 +20,7 @@ class BaseTrainer:
         self.test_dataloader = test_dataloader
 
         self.epoch = 0
+        self.start_epoch = 0
         self.writer = None
         self.metrics_tracker = None
 
@@ -179,7 +180,7 @@ class BaseTrainer:
         resume_path = str(resume_path)
         print("Loading checkpoint: {} ...".format(resume_path))
         checkpoint = torch.load(resume_path, self.device)
-        self.epoch = checkpoint["epoch"] + 1
+        self.start_epoch = checkpoint["epoch"] + 1
 
         # load architecture params from checkpoint.
         if checkpoint["config"]["model"] != self.config["model"]:
@@ -200,7 +201,7 @@ class BaseTrainer:
             self.optimizer.load_state_dict(checkpoint["optimizer"])
             # self.lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
 
-        print("Checkpoint loaded. Resume training from epoch {}".format(self.epoch))
+        print("Checkpoint loaded. Resume training from epoch {}".format(self.start_epoch))
 
     def log_scalars(self, metric_tracker: MetricTracker):
         if self.writer is None:
