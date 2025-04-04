@@ -135,7 +135,8 @@ class StepByStepTrainer(BaseTrainer):
 
                 step += 1
             
-            if self.writer: self.writer.set_step(step, mode="val")
+            if self.writer:
+                self.writer.set_step(step, mode="val")
             accuracy, token_accuracy, ppl = self.evaluate(
                 self.val_dataloader,
                 "val",
@@ -152,10 +153,8 @@ class StepByStepTrainer(BaseTrainer):
             #         self.evaluate(self.test_dataloader, "test", self.val_truncation_kwargs, self.val_generation_kwargs)
             #     self._save_checkpoint(epoch=self.epoch, save_best=True, only_best=True)
             
-            if epoch % 1 == 0 or epoch == self.args.epochs - 1:
-                # self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
-                self._save_checkpoint(epoch=self.epoch, save_best=False)
-    
+            self.save_epoch(epoch)
+
 
     def process_input_truncation(self, batch, epoch, disable_random_removal_offset=False):
         input_ids = batch['input_ids'].to(self.device)

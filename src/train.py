@@ -187,6 +187,7 @@ def main():
     parser.add_argument('--max_new_tokens', type=int, default=800)
     parser.add_argument('--max_size', type=int, default=-1)
     parser.add_argument('--save_model', type=str, required=True)
+    parser.add_argument('--save_period', type=int, default=1)
     parser.add_argument('--from_pretrained', type=str, default=None, help="Load model weights only")
     parser.add_argument('--from_pretrained_checkpoint', type=str, default=None, help="Load model weights and optimizer state")
 

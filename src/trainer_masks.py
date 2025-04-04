@@ -141,10 +141,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                     perform_generative_eval=True
                 )
 
-            if epoch % 1 == 0 or epoch == self.args.epochs - 1:
-                self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
-                self._save_checkpoint(epoch, save_best=True, only_best=False)
-
+            self.save_epoch(epoch)
 
     def process_input_truncation(self, batch, val_removal_p=None):
         input_ids = batch['input_ids'].to(self.device)
@@ -226,6 +223,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             removal_p,
             first_sep_positions,
             eos_positions,
+            nonmasked_lengths,
             batched=False,
             left_to_right=True
     ):
@@ -249,12 +247,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             input_ids[..., :start - 1],  # move EOS_TOKEN_ID in prefix
             prefix,
             input_ids[..., end:eos + 1]
-        ], dim=1)
+        ], dim=int(batched))
         labels_new = torch.cat([
             labels[..., :start - 1],
             ignored_prefix_labels,
             labels[..., end:eos + 1]
-        ], dim=1)
+        ], dim=int(batched))
 
         if self.args.keep_position:
             length = max(input_ids.shape[-1], input_ids_new.shape[-1])
@@ -303,6 +301,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 removal_p,
                 first_sep_positions,
                 eos_positions,
+                nonmasked_lengths,
                 batched=True,
                 left_to_right=left_to_right
             )
@@ -329,13 +328,15 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                     removal_p,
                     first_sep_positions[batch_idx],
                     eos_positions[batch_idx],
+                    nonmasked_lengths[batch_idx],
                     batched=False,
                     left_to_right=left_to_right
                 )
 
                 input_ids_new.append(input_ids_new_i)
                 labels_new.append(labels_new_i)
-                position_ids_new.append(position_ids_new_i)
+                if self.args.keep_position:
+                    position_ids_new.append(position_ids_new_i)
                 nonmasked_lengths[batch_idx] = nonmasked_lengths_i
                 n_tokens_removed.append(n_tokens_to_remove)
             

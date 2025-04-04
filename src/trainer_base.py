@@ -154,6 +154,10 @@ class BaseTrainer:
         print (f'Evaluation on part: {name}; PPL: {ppl}; Accuracy: {accuracy}; Token Accuracy: {token_accuracy}.')
         return accuracy, token_accuracy, ppl
 
+    def save_epoch(self, epoch):
+        if epoch % self.args.save_period == 0 or epoch == self.args.epochs - 1:
+            # self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
+            self._save_checkpoint(epoch, save_best=True, only_best=False)
 
     def _save_checkpoint(self, epoch, save_best=False, only_best=False):
         arch = type(self.model).__name__
