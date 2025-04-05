@@ -216,22 +216,26 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels
 
-    def _concat_ids(self, ids, prefix_ids, cot_start, start, end, eos, dim):
+    def _concat_ids(self, ids, prefix_ids, cot_start, start, end, eos, dim, labels_flag=False):
         ids_to_cat = [ids[..., :cot_start - 1], prefix_ids] # move EOS_TOKEN_ID in prefix
         if cot_start < start:
             ids_to_cat.append(ids[..., cot_start:start])
 
         if self.args.replace_mask:
-            mask_shape = ids.shape
-            mask_shape[-1] = end - start
-            mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id, dtype=torch.long)
-            ids_to_cat.append(mask_tensor)
+            if labels_flag:
+                # Recover all COT tokens in labels in case of mask replacement
+                ids_to_cat.append(ids[..., start:end])
+            else:
+                mask_shape = ids.shape
+                mask_shape[-1] = end - start
+                mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id, dtype=torch.long)
+                ids_to_cat.append(mask_tensor)
         
         ids_to_cat.append(ids[..., end:eos + 1])
 
         ids_new = torch.cat(ids_to_cat, dim=dim)
         return ids_new
-    
+
     def _contiguous_truncation(
             self,
             input_ids,
@@ -261,7 +265,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             prefix, ignored_prefix_labels = prefix.repeat(batch_size, 1), ignored_prefix_labels.repeat(batch_size, 1)
 
         input_ids_new = self._concat_ids(input_ids, prefix, cot_start, start, end, eos, dim=int(batched))
-        labels_new = self._concat_ids(labels, ignored_prefix_labels, cot_start, start, end, eos, dim=int(batched))
+        labels_new = self._concat_ids(labels, ignored_prefix_labels, cot_start, start, end, eos, dim=int(batched), labels_flag=True)
 
         if self.args.keep_position:
             length = max(input_ids.shape[-1], input_ids_new.shape[-1])
