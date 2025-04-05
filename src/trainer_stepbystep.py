@@ -50,6 +50,7 @@ class StepByStepTrainer(BaseTrainer):
     def _train_process(self):
         if self.args.from_pretrained_checkpoint:
             self._resume_checkpoint(self.args.from_pretrained_checkpoint)
+            self.scheduled_to_remove = self.args.remove_per_epoch * self.start_epoch
 
         batch_size = self.args.batch_size
         step = self.start_epoch * ((len(self.train_dataloader) + batch_size - 1) // batch_size)
