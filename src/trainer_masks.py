@@ -44,7 +44,6 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.no_cot_stage = getattr(args, "no_cot_stage", False)
 
         # For random masking 
-        self.truncate_random_mask = getattr(args, "truncate_random_mask", True)
         self.mask_id = torch.tensor(self.tokenizer.encode("Mask"))
         if len(self.mask_id) != 1:
             self.mask_id = torch.tensor(self.tokenizer.encode("M"))
@@ -216,6 +215,22 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels
+
+    def _concat_ids(self, ids, prefix_ids, cot_start, start, end, eos, dim):
+        ids_to_cat = [ids[..., :cot_start - 1], prefix_ids] # move EOS_TOKEN_ID in prefix
+        if cot_start < start:
+            ids_to_cat.append(ids[..., cot_start:start])
+
+        if self.args.replace_mask:
+            mask_shape = ids.shape
+            mask_shape[-1] = end - start
+            mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id, dtype=torch.long)
+            ids_to_cat.append(mask_tensor)
+        
+        ids_to_cat.append(ids[..., end:eos + 1])
+
+        ids_new = torch.cat(ids_to_cat, dim=dim)
+        return ids_new
     
     def _contiguous_truncation(
             self,
@@ -236,8 +251,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         start = cot_start + offset
         end = start + n_tokens_to_remove
-
         eos = eos_positions[0] if batched else eos_positions
+
         prefix, ignored_prefix_labels = self._get_prefix_contiguous_truncation(n_tokens_to_remove, left_to_right, offset)
 
         if input_ids.ndim == 2:
@@ -245,30 +260,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             prefix, ignored_prefix_labels = prefix.unsqueeze(0), ignored_prefix_labels.unsqueeze(0)
             prefix, ignored_prefix_labels = prefix.repeat(batch_size, 1), ignored_prefix_labels.repeat(batch_size, 1)
 
-        if offset == 0:
-            input_ids_new = torch.cat([
-                input_ids[..., :cot_start - 1],  # move EOS_TOKEN_ID in prefix
-                prefix,
-                input_ids[..., end:eos + 1]
-            ], dim=int(batched))
-            labels_new = torch.cat([
-                labels[..., :cot_start - 1],
-                ignored_prefix_labels,
-                labels[..., end:eos + 1]
-            ], dim=int(batched))
-        else:
-            input_ids_new = torch.cat([
-                input_ids[..., :cot_start - 1],  # move EOS_TOKEN_ID in prefix
-                prefix,
-                input_ids[..., cot_start:start],
-                input_ids[..., end:eos + 1]
-            ], dim=int(batched))
-            labels_new = torch.cat([
-                labels[..., :cot_start - 1],
-                ignored_prefix_labels,
-                labels[..., cot_start:start],
-                labels[..., end:eos + 1]
-            ], dim=int(batched))
+        input_ids_new = self._concat_ids(input_ids, prefix, cot_start, start, end, eos, dim=int(batched))
+        labels_new = self._concat_ids(labels, ignored_prefix_labels, cot_start, start, end, eos, dim=int(batched))
 
         if self.args.keep_position:
             length = max(input_ids.shape[-1], input_ids_new.shape[-1])
@@ -373,11 +366,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
     @staticmethod
     def _get_random_cot_mask(cot_start, cot_end, n_tokens_to_remove):
-        random_indices, _ = torch.sort(torch.randint(cot_start.item(), cot_end.item(), size=(n_tokens_to_remove,), dtype=torch.long))
+        removed_indices = cot_start + torch.randperm(cot_end - cot_start, dtype=torch.long)[:n_tokens_to_remove]
+        removed_indices, _ = torch.sort(removed_indices)
         all_indices = torch.arange(cot_start, cot_end)
-        mask = ~torch.isin(all_indices, random_indices)
-        remaining_indices = all_indices[mask]
-        return remaining_indices, random_indices, mask
+        mask = torch.isin(all_indices, removed_indices)
+        remaining_indices = all_indices[~mask]
+        return remaining_indices, removed_indices, mask
 
     def _get_prefix_random_masking(self, cot_start, removed_indices):
         if self.no_cot_stage:
@@ -385,11 +379,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             ignored_prefix_labels = torch.full_like(prefix, -100)
             return prefix, ignored_prefix_labels
         
-        # only if self.truncate_random_mask is True
-        if self.truncate_random_mask:
-            prefix_str = f" ## removed tokens: {(removed_indices - cot_start).tolist()} ## "
-        else:
+        if self.args.replace_mask:
             prefix_str = f" ## masked {len(removed_indices)} ## "
+        else:
+            prefix_str = f" ## removed tokens: {(removed_indices - cot_start).tolist()} ## "
 
         prefix = self.tokenizer(
             prefix_str,
@@ -433,13 +426,17 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             remaining_indices, removed_indices, mask = self._get_random_cot_mask(cot_start, cot_end, n_tokens_to_remove)
             prefix, ignored_prefix_labels = self._get_prefix_random_masking(cot_start, removed_indices)
 
-            if self.truncate_random_mask:
-                input_ids_cot_masked = input_ids[batch_idx, remaining_indices].detach()
-                input_ids_insert = torch.cat([prefix, input_ids_cot_masked])
-                labels_insert = torch.cat([ignored_prefix_labels, input_ids_cot_masked.clone()])
+            if not self.args.replace_mask: # truncate selected tokens
+                if remaining_indices.shape[-1]:
+                    input_ids_cot_masked = input_ids[batch_idx, remaining_indices].detach()
+                    input_ids_insert = torch.cat([prefix, input_ids_cot_masked])
+                    labels_insert = torch.cat([ignored_prefix_labels, input_ids_cot_masked.clone()])
+                else:
+                    input_ids_insert = prefix
+                    labels_insert = ignored_prefix_labels
             else:
                 input_ids_cot_masked = input_ids[batch_idx, cot_start:cot_end].detach()
-                input_ids_cot_masked[~mask] = self.mask_id                     # does it work with p = 1.0 ?
+                input_ids_cot_masked[mask] = self.mask_id
                 input_ids_insert = torch.cat([prefix, input_ids_cot_masked])
                 labels_insert = torch.cat([ignored_prefix_labels, input_ids_cot_masked.clone()])
 
