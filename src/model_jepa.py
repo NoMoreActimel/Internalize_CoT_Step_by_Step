@@ -36,19 +36,38 @@ class JEPAImplicitModel(ImplicitModel):
             labels,
             position_ids=None,
             full_input_ids=None,
+            full_labels=None,
             full_position_ids=None,
             output_attentions=False
     ):
         outputs = self.forward(input_ids=input_ids, position_ids=position_ids, output_attentions=output_attentions)
         logits = outputs.logits
 
-        ref_outputs = self.ref_model.forward(input_ids=full_input_ids, position_ids=full_position_ids, output_attentions=output_attentions)
-        ref_logits = ref_outputs.logits
+        with torch.no_grad():
+            ref_outputs = self.ref_model.forward(input_ids=full_input_ids, position_ids=full_position_ids, output_attentions=output_attentions)
+            ref_logits = ref_outputs.logits
 
-        answer_pos = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=1)
-        answer_logits = logits[..., answer_pos:]
-        ref_answer_logits = ref_logits[..., answer_pos:]
-        logits_loss = nn.functional.mse_loss(answer_logits, ref_answer_logits)
+        B, L, D = logits.shape
+        B, L_ref, D = ref_logits.shape
+    
+        # skip=0 and skip=1 because it's labels
+        answer_start_positions = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=0).unsqueeze(1)
+        answer_end_positions = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=1).unsqueeze(1)
+        ref_answer_start_positions = get_sep_position(full_labels, sep_id=self.tokenizer.eos_token_id, skip=0).unsqueeze(1)
+        ref_answer_end_positions = get_sep_position(full_labels, sep_id=self.tokenizer.eos_token_id, skip=1).unsqueeze(1)
+        
+        position_ids = torch.arange(L, device=labels.device).unsqueeze(0).expand(B, L)
+        ref_position_ids = torch.arange(L_ref, device=labels.device).unsqueeze(0).expand(B, L_ref)
+        
+        mask = (position_ids >= answer_start_positions) * (position_ids <= answer_end_positions)
+        ref_mask = (ref_position_ids >= ref_answer_start_positions) * (ref_position_ids <= ref_answer_end_positions)
+        mask_flat = mask.view(B * L)
+        ref_mask_flat = ref_mask.view(B * L_ref)
+
+        logits_loss = nn.functional.mse_loss(
+            logits.view(B * L, D)[mask_flat],
+            ref_logits.view(B * L_ref, D)[ref_mask_flat]
+        )
 
         labels_pred = logits.argmax(-1)
         mask = labels[...,1:].ge(0)
@@ -60,6 +79,9 @@ class JEPAImplicitModel(ImplicitModel):
         shift_labels = labels[..., 1:].contiguous()
         loss_fct = CrossEntropyLoss()
         loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+        
+        print("JEPA-MSE-loss:", logits_loss)
+        print("NTP-CE-loss:", loss)
 
         outputs.ce_loss = loss
         outputs.logits_loss = logits_loss

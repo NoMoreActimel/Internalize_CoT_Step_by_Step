@@ -12,6 +12,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args):
         super().__init__(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
 
+        self.jepa_training = hasattr(self.model, "ref_model")
+
         # train to produce all masking rates of COTs at once (uniformly sample p per each sample) 
         self.joint_masked_distribution = args.joint_masked_distribution
 
@@ -86,6 +88,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             print(print_line)
 
             for batch in tqdm.tqdm(self.train_dataloader):
+                if self.jepa_training:
+                    full_input_ids = batch["input_ids"].to(self.device)
+                    full_labels = batch["labels"].to(self.device)
+                    full_position_ids = self._get_position_ids(full_input_ids)
                 input_ids, labels, position_ids, all_cot_removed_in_batch = self.process_input_truncation(batch)
 
                 # if not all_cot_removed_in_batch:
@@ -98,14 +104,13 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                     if self.args.keep_position:
                         position_ids = position_ids[:, :input_ids.shape[-1]]
                     
-                    if hasattr(self.model, "ref_model"):
-                        full_input_ids = batch["input_ids"].to(self.device)
-                        full_position_ids = self._get_position_ids(full_input_ids)
+                    if self.jepa_training:
                         outputs = self.model.compute_loss(
                             input_ids=input_ids,
                             labels=labels,
                             position_ids=position_ids,
                             full_input_ids=full_input_ids,
+                            full_labels=full_labels,
                             full_position_ids=full_position_ids
                         )
                     else:
@@ -120,7 +125,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 loss.div(self.args.accumulate).backward()
                 grad_norm = self.get_grad_norm()
 
-                if hasattr(self.model, "update_ref_model"):
+                if self.jepa_training:
                     self.model.update_ref_model()
 
                 if step % self.args.accumulate == 0:
@@ -134,6 +139,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                     self.metrics_tracker.update("token_accuracy", outputs.token_accuracy.item())
                     self.metrics_tracker.update("grad_norm", grad_norm)
                     self.metrics_tracker.update("removal_p", self.removal_p)
+
+                    if self.jepa_training:
+                        self.metrics_tracker.update("CE_loss", outputs.ce_loss.item())
+                        self.metrics_tracker.update("JEPA_loss", outputs.logits_loss.item())
                 
                 if step % 100 == 0:
                     token_accuracy = outputs.token_accuracy.item()

@@ -185,6 +185,7 @@ def main():
             Works only with --removal_type 'random-masks' trainer.
         """
     )
+    parser.add_argument('--alpha_logits_loss', type=float, default=1.0, help='JEPA loss multiplier')
     parser.add_argument('--ref_model_update_decay', type=float, default=0.999, help='Coefficient for EMA on ref model weights in JEPA training')
 
     # RANDOM MASKS REMOVAL
@@ -277,7 +278,7 @@ def main():
     else:
         new_token_ids = None
 
-    if args.train_type == "JEPA-NTP":
+    if args.train_type == "jepa-cot-distill":
         ref_model = model
         _, model, __ = create_jepa_model(config, ref_model, args, ptdtype, device)
 
