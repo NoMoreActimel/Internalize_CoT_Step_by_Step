@@ -18,6 +18,7 @@ from data_chunked import CoTDatasetAssignedChunks, CoTDataCollatorAssignedChunks
 from trainer_stepbystep import StepByStepTrainer
 from trainer_chunks import ChunkRemovalTrainer
 from trainer_masks import AuxiliarMasksRemovalTrainer
+from trainer_simple import SimpleTrainer
 
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -174,16 +175,16 @@ def main():
 
     parser.add_argument('--removal_type', type=str, choices=['step-by-step', 'random-chunks', 'random-masks'], default='step-by-step')
 
-    parser.add_argument('--train_type', type=str, choices=['NTP', 'JEPA-NTP'], default='NTP',
-                        help="""
-                        Type of Training: 'NTP' for usual Next Token Prediction (by default)
-                        or 'JEPA-NTP' For JEPA-like Next-Token-Prediction training.
-
-                        That is, match logits / last hidden states on [answer] part
-                        between reference model on full COTs and current model on corrupted COTs.
-
-                        Works only with --removal_type 'random-masks' trainerr
-                        """)
+    parser.add_argument('--train_type', type=str, choices=['full-cot', 'cot-distill', 'jepa-cot-distill'], default='cot-distill', help="""
+        Type of Training:
+        - 'full-cot': simply train on full Chains-of-Thought data
+        - 'cot-distill': for different types of Chains-of-Thought distillation, by removal_type (default)
+        - 'jepa-cot-distill': for JEPA-like COT distillation training.
+            That is, match logits / last hidden states on [answer] part
+            between reference model on full COTs and current model on corrupted COTs.
+            Works only with --removal_type 'random-masks' trainer.
+        """
+    )
     parser.add_argument('--ref_model_update_decay', type=float, default=0.999, help='Coefficient for EMA on ref model weights in JEPA training')
 
     # RANDOM MASKS REMOVAL
@@ -291,7 +292,9 @@ def main():
 
 
     # Train
-    if args.removal_type == "step-by-step":
+    if args.train_type == "full-cot":
+        trainer = SimpleTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
+    elif args.removal_type == "step-by-step":
         trainer = StepByStepTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
     elif args.removal_type == 'random-chunks':
         trainer = ChunkRemovalTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args, start_id)
