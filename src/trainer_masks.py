@@ -134,11 +134,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
 
             for val_removal_p in self.val_removal_ps:
+                name = f"val_{val_removal_p}" if val_removal_p != 1.0 else "val"
                 if self.writer:
-                    self.writer.set_step(step, mode=f"val_{val_removal_p}")
+                    self.writer.set_step(step, mode=name)
                 self.evaluate(
                     dataloader=self.val_dataloader,
-                    name=f"val_{val_removal_p}",
+                    name=name,
                     truncation_kwargs={"val_removal_p": val_removal_p},
                     generation_kwargs=self.val_generation_kwargs,
                     perform_generative_eval=True
