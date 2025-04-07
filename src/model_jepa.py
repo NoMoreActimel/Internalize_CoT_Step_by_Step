@@ -45,7 +45,7 @@ class JEPAImplicitModel(ImplicitModel):
         ref_outputs = self.ref_model.forward(input_ids=full_input_ids, position_ids=full_position_ids, output_attentions=output_attentions)
         ref_logits = ref_outputs.logits
 
-        answer_pos = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=1) + 1
+        answer_pos = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=1)
         answer_logits = logits[..., answer_pos:]
         ref_answer_logits = ref_logits[..., answer_pos:]
         logits_loss = nn.functional.mse_loss(answer_logits, ref_answer_logits)
