@@ -370,11 +370,17 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
     @staticmethod
     def _get_random_cot_mask(cot_start, cot_end, n_tokens_to_remove):
-        removed_indices = cot_start + torch.randperm(cot_end - cot_start, dtype=torch.long)[:n_tokens_to_remove]
+        removed_indices = cot_start + torch.randperm(
+            cot_end - cot_start,
+            device=cot_start.device,
+            dtype=torch.long
+        )[:n_tokens_to_remove]
         removed_indices, _ = torch.sort(removed_indices)
-        all_indices = torch.arange(cot_start, cot_end)
+
+        all_indices = torch.arange(cot_start, cot_end, device=cot_start.device)
         mask = torch.isin(all_indices, removed_indices)
         remaining_indices = all_indices[~mask]
+        
         return remaining_indices, removed_indices, mask
 
     def _get_prefix_random_masking(self, cot_start, removed_indices):
