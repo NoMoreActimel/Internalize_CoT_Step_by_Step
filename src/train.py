@@ -11,6 +11,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from model import ImplicitModel
+from model_jepa import JEPAImplicitModel
 from configuration_model import ImplicitModelConfig
 from data import CoTDataset, CoTDataCollator
 from data_chunked import CoTDatasetAssignedChunks, CoTDataCollatorAssignedChunks, add_new_tokens
@@ -73,6 +74,36 @@ def create_model(args, ptdtype, device):
     
     return config, model, tokenizer
 
+def create_jepa_model(config, ref_model, args, ptdtype, device):
+    if args.from_pretrained is None:
+        model = JEPAImplicitModel(
+            config=config,
+            ref_model=ref_model,
+            alpha_logits_loss=args.alpha_logits_loss,
+            ref_model_update_decay=args.ref_model_update_decay,
+            reinitialize_weights=args.train_from_scratch,
+            use_flash_attention=args.flash_attention_2
+        ).to(device).to(ptdtype)
+    else:
+        print (f'Loading from {args.from_pretrained}')
+        model = JEPAImplicitModel(
+            config=config,
+            ref_model=ref_model,
+            alpha_logits_loss=args.alpha_logits_loss,
+            ref_model_update_decay=args.ref_model_update_decay,
+            reinitialize_weights=False,
+            use_flash_attention=args.flash_attention_2
+        ).to(device).to(ptdtype)
+        state_dict = torch.load(os.path.join(args.from_pretrained, 'state_dict.bin'))
+        model.load_state_dict(state_dict, strict=True)
+
+    if 'gpt2' in args.model:
+        expand_gpt2_positions(model, args)
+    
+    if args.keep_position:
+        assert 'gpt2' in args.model # only implemented for gpt2 generate TODO: the code for this is not checked in yet
+    
+    return config, model, model.tokenizer
 
 def load_data(args, tokenizer, new_token_ids=None):
     if args.removal_type == 'step-by-step':
@@ -142,6 +173,18 @@ def main():
     parser.add_argument('--mode', type=str, choices=['train', 'eval'], default='train')
 
     parser.add_argument('--removal_type', type=str, choices=['step-by-step', 'random-chunks', 'random-masks'], default='step-by-step')
+
+    parser.add_argument('--train_type', type=str, choices=['NTP', 'JEPA-NTP'], default='NTP',
+                        help="""
+                        Type of Training: 'NTP' for usual Next Token Prediction (by default)
+                        or 'JEPA-NTP' For JEPA-like Next-Token-Prediction training.
+
+                        That is, match logits / last hidden states on [answer] part
+                        between reference model on full COTs and current model on corrupted COTs.
+
+                        Works only with --removal_type 'random-masks' trainerr
+                        """)
+    parser.add_argument('--ref_model_update_decay', type=float, default=0.999, help='Coefficient for EMA on ref model weights in JEPA training')
 
     # RANDOM MASKS REMOVAL
 
@@ -232,6 +275,10 @@ def main():
         start_id, new_token_ids = new_token_ids[0], new_token_ids[1:]
     else:
         new_token_ids = None
+
+    if args.train_type == "JEPA-NTP":
+        ref_model = model
+        _, model, __ = create_jepa_model(config, ref_model, args, ptdtype, device)
 
     # Load Data
     train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)

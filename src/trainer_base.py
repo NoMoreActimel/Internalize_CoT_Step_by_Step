@@ -169,6 +169,9 @@ class BaseTrainer:
             "config": self.config,
         }
 
+        if hasattr(self.model, "ref_model"):
+            state["ref_state_dict"] = self.model.ref_model.state_dict()
+
         filename = str(self.args.save_model + "/checkpoint-epoch{}.pth".format(epoch))
 
         if not (only_best and save_best):
@@ -193,6 +196,13 @@ class BaseTrainer:
                 "of checkpoint. This may yield an exception while state_dict is being loaded."
             )
         self.model.load_state_dict(checkpoint["state_dict"])
+
+        if hasattr(self.model, "ref_model"):
+            if "ref_state_dict" in checkpoint:
+                self.model.ref_model.load_state_dict(checkpoint["ref_state_dict"])
+            else:
+                self.model.ref_model.load_state_dict(checkpoint["state_dict"])
+            self.model.ref_model.eval()
 
         # load optimizer state from checkpoint only when optimizer type is not changed.
         if checkpoint["config"].get("optimizer", "") != self.config.get("optimizer", ""):

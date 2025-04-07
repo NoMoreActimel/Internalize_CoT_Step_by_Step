@@ -104,6 +104,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 loss.div(self.args.accumulate).backward()
                 grad_norm = self.get_grad_norm()
 
+                if hasattr(self.model, "update_ref_model"):
+                    self.model.update_ref_model()
+
                 if step % self.args.accumulate == 0:
                     torch.nn.utils.clip_grad_norm_(self.get_trainable_params(), self.args.max_grad_norm)
                     self.optimizer.step()
@@ -380,7 +383,6 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         all_indices = torch.arange(cot_start, cot_end, device=cot_start.device)
         mask = torch.isin(all_indices, removed_indices)
         remaining_indices = all_indices[~mask]
-        
         return remaining_indices, removed_indices, mask
 
     def _get_prefix_random_masking(self, cot_start, removed_indices):
