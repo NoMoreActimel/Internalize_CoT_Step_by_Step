@@ -97,7 +97,23 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 with self.ctx:
                     if self.args.keep_position:
                         position_ids = position_ids[:, :input_ids.shape[-1]]
-                    outputs = self.model.compute_loss(input_ids=input_ids, labels=labels, position_ids=position_ids)
+                    
+                    if hasattr(self.model, "ref_model"):
+                        full_input_ids = batch["input_ids"].to(self.device)
+                        full_position_ids = self._get_position_ids(full_input_ids)
+                        outputs = self.model.compute_loss(
+                            input_ids=input_ids,
+                            labels=labels,
+                            position_ids=position_ids,
+                            full_input_ids=full_input_ids,
+                            full_position_ids=full_position_ids
+                        )
+                    else:
+                        outputs = self.model.compute_loss(
+                            input_ids=input_ids,
+                            labels=labels,
+                            position_ids=position_ids
+                        )
 
                 loss = outputs.loss
                 loss_log[-1].append(loss.item())
@@ -185,6 +201,14 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 left_to_right=self.left_to_right_removal
             )
         return self.random_masking(input_ids, labels, self.removal_p, self.joint_masked_distribution)
+
+    def _get_position_ids(self, input_ids):
+        if self.args.keep_position:
+            position_ids = torch.arange(0, input_ids.shape[-1], dtype=torch.long, device=self.device)
+            if input_ids.ndim == 2:
+                position_ids = position_ids.unsqueeze(0).repeat(input_ids.shape[0], 1)
+            return position_ids
+        return None
     
     def _get_sep_positions(self, input_ids):
         first_sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id)
