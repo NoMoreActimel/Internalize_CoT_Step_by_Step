@@ -15,6 +15,8 @@ class BaseTrainer:
         self.optimizer = optimizer
         self.tokenizer = tokenizer
 
+        self.jepa_training = hasattr(self.model, "ref_model")
+
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
         self.test_dataloader = test_dataloader
@@ -91,15 +93,34 @@ class BaseTrainer:
         total_generated = 0
 
         for batch_idx, batch in tqdm.tqdm(enumerate(dataloader)):
+            if self.jepa_training:
+                full_input_ids = batch["input_ids"].to(self.device).clone()
+                full_labels = batch["labels"].to(self.device).clone()
+                full_position_ids = self._get_position_ids(full_input_ids)
+
             input_ids_all = batch['input_ids'].to(self.device)
             labels_all = batch['labels'].to(self.device)
-
             input_ids_all, labels_all, position_ids_all, _ = self.process_input_truncation(batch, **truncation_kwargs)
 
             with self.ctx:
                 if self.args.keep_position:
                     position_ids_all = position_ids_all[:, :input_ids_all.shape[-1]]
-                outputs = self.model.compute_loss(input_ids=input_ids_all, labels=labels_all, position_ids=position_ids_all)
+
+                if self.jepa_training:
+                    outputs = self.model.compute_loss(
+                        input_ids=input_ids_all,
+                        labels=labels_all,
+                        position_ids=position_ids_all,
+                        full_input_ids=full_input_ids,
+                        full_labels=full_labels,
+                        full_position_ids=full_position_ids
+                    )
+                else:
+                    outputs = self.model.compute_loss(
+                        input_ids=input_ids_all,
+                        labels=labels_all,
+                        position_ids=position_ids_all
+                    )
 
             total_loss += outputs.total_loss.item()
             total_correct_tokens += outputs.total_correct.item()
@@ -148,6 +169,11 @@ class BaseTrainer:
             self.metrics_tracker.update("perplexity", ppl)
             self.metrics_tracker.update("accuracy", accuracy)
             self.metrics_tracker.update("token_accuracy", token_accuracy)
+
+            if self.jepa_training:
+                self.metrics_tracker.update("CE_loss", outputs.ce_loss.item())
+                self.metrics_tracker.update("JEPA_loss", outputs.logits_loss.item())
+                
             self.log_scalars(self.metrics_tracker)
             self.metrics_tracker.reset()
 

@@ -12,8 +12,6 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args):
         super().__init__(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
 
-        self.jepa_training = hasattr(self.model, "ref_model")
-
         # train to produce all masking rates of COTs at once (uniformly sample p per each sample) 
         self.joint_masked_distribution = args.joint_masked_distribution
 
@@ -52,7 +50,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.mask_id = self.mask_id.to(self.device)
 
         # Metrics
-        self.setup_metrics(additional_metrics=["removal_p"])
+        additional_metrics = ["removal_p"]
+        if self.jepa_training:
+            additional_metrics.append("CE_loss")
+            additional_metrics.append("JEPA_loss")
+        self.setup_metrics(additional_metrics=additional_metrics)
     
     def _train_process(self):
         if self.args.from_pretrained_checkpoint:
@@ -89,8 +91,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
             for batch in tqdm.tqdm(self.train_dataloader):
                 if self.jepa_training:
-                    full_input_ids = batch["input_ids"].to(self.device)
-                    full_labels = batch["labels"].to(self.device)
+                    full_input_ids = batch["input_ids"].to(self.device).clone()
+                    full_labels = batch["labels"].to(self.device).clone()
                     full_position_ids = self._get_position_ids(full_input_ids)
                 input_ids, labels, position_ids, all_cot_removed_in_batch = self.process_input_truncation(batch)
 
