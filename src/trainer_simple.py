@@ -70,7 +70,6 @@ class SimpleTrainer(BaseTrainer):
                     self.metrics_tracker.update("perplexity", loss.exp().item())
                     self.metrics_tracker.update("token_accuracy", outputs.token_accuracy.item())
                     self.metrics_tracker.update("grad_norm", grad_norm)
-                    self.metrics_tracker.update("removal_p", self.removal_p)
                 
                 if step % 100 == 0:
                     token_accuracy = outputs.token_accuracy.item()

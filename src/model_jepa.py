@@ -80,8 +80,8 @@ class JEPAImplicitModel(ImplicitModel):
         loss_fct = CrossEntropyLoss()
         loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         
-        print("JEPA-MSE-loss:", logits_loss)
-        print("NTP-CE-loss:", loss)
+        # print("JEPA-MSE-loss:", logits_loss)
+        # print("NTP-CE-loss:", loss)
 
         outputs.ce_loss = loss
         outputs.logits_loss = logits_loss
