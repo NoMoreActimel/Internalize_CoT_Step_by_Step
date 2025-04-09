@@ -226,8 +226,10 @@ class BaseTrainer:
         if hasattr(self.model, "ref_model"):
             if "ref_state_dict" in checkpoint:
                 self.model.ref_model.load_state_dict(checkpoint["ref_state_dict"])
+                print("Loaded ref_model from the previous ref_state_dict!")
             else:
                 self.model.ref_model.load_state_dict(checkpoint["state_dict"])
+                print("Loaded ref_model from the default model's state_dict!")
             self.model.ref_model.eval()
 
         # load optimizer state from checkpoint only when optimizer type is not changed.
