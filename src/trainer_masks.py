@@ -60,6 +60,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         if self.args.from_pretrained_checkpoint:
             self._resume_checkpoint(self.args.from_pretrained_checkpoint)
 
+        # If JEPA model starts training from plain full-COT model
+        if self.args.from_pretrained_fullcot_checkpoint:
+            self._resume_checkpoint(self.args.from_pretrained_fullcot_checkpoint, load_optimizer_state=False)
+
         batch_size = self.args.batch_size
         step = self.start_epoch * ((len(self.train_dataloader) + batch_size - 1) // batch_size)
         if self.writer: self.writer.set_step(step, mode="train")

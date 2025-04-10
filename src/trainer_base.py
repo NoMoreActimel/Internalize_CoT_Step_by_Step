@@ -209,7 +209,7 @@ class BaseTrainer:
             torch.save(state, best_path)
             print("Saving current best: model_best.pth ...")
 
-    def _resume_checkpoint(self, resume_path):
+    def _resume_checkpoint(self, resume_path, load_optimizer_state=True):
         resume_path = str(resume_path)
         print("Loading checkpoint: {} ...".format(resume_path))
         checkpoint = torch.load(resume_path, self.device)
@@ -225,7 +225,7 @@ class BaseTrainer:
         if not getattr(self, "jepa_training", False):
             self.model.load_state_dict(checkpoint["state_dict"])
         else:
-            self.model.base_model.load_state_dict(checkpoint["state_dict"])
+            self.model.load_state_dict(checkpoint["state_dict"], strict=False)
             if "ref_state_dict" in checkpoint:
                 self.model.ref_model.load_state_dict(checkpoint["ref_state_dict"])
                 print("Loaded ref_model from the previous ref_state_dict!")
@@ -233,6 +233,10 @@ class BaseTrainer:
                 self.model.ref_model.load_state_dict(checkpoint["state_dict"])
                 print("Loaded ref_model from the default model's state_dict!")
             self.model.ref_model.eval()
+        
+        if not load_optimizer_state:
+            print("Only Model weights were loaded, Optimizer state was not. Resume training from epoch {}".format(self.start_epoch))
+            return
 
         # load optimizer state from checkpoint only when optimizer type is not changed.
         if checkpoint["config"].get("optimizer", "") != self.config.get("optimizer", ""):
