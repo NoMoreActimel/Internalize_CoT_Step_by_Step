@@ -222,7 +222,7 @@ class BaseTrainer:
                 "of checkpoint. This may yield an exception while state_dict is being loaded."
             )
         
-        if getattr(self, "jepa_training", False):
+        if not getattr(self, "jepa_training", False):
             self.model.load_state_dict(checkpoint["state_dict"])
         else:
             self.model.base_model.load_state_dict(checkpoint["state_dict"])
