@@ -221,9 +221,11 @@ class BaseTrainer:
                 "Warning: Architecture configuration given in config file is different from that "
                 "of checkpoint. This may yield an exception while state_dict is being loaded."
             )
-        self.model.load_state_dict(checkpoint["state_dict"])
-
-        if hasattr(self.model, "ref_model"):
+        
+        if getattr(self, "jepa_training", False):
+            self.model.load_state_dict(checkpoint["state_dict"])
+        else:
+            self.model.base_model.load_state_dict(checkpoint["state_dict"])
             if "ref_state_dict" in checkpoint:
                 self.model.ref_model.load_state_dict(checkpoint["ref_state_dict"])
                 print("Loaded ref_model from the previous ref_state_dict!")
