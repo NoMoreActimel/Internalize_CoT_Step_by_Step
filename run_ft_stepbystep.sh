@@ -7,7 +7,7 @@ SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
 DIR="$SCRATCH_DIR/train_models/${D}_by_${D}_mult/gpt2_pretrained/sbs_from_scratch_ft_10_04_03_25/"
 mkdir -p "$DIR"
 
-export WANDB_API_KEY="96b7c9ce4fa58a9b8254a7e3b14ef24071ecd75e"
+export WANDB_API_KEY=""
 export WANDB_MODE="offline"
 
 python src/train.py \
