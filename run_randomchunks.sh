@@ -5,9 +5,6 @@ SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
 DIR="$SCRATCH_DIR/train_models/4_by_4_mult/gpt2_pretrained/random_chunks_onetoken_from_scratch/"
 mkdir -p "$DIR"
 
-export WANDB_API_KEY=""
-export WANDB_MODE="online"
-
 python src/train.py \
     --model gpt2 \
     --train_path "$SCRATCH_DIR/data/4_by_4_mult/train.txt" \

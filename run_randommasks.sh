@@ -7,9 +7,6 @@ SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
 DIR="$SCRATCH_DIR/train_models/${D}_by_${D}_mult/gpt2_pretrained/completely_random_masks_joint_from_scratch_2/"
 mkdir -p "$DIR"
 
-export WANDB_API_KEY=""
-export WANDB_MODE="offline"
-
 python src/train.py \
     --model gpt2 \
     --train_path "$SCRATCH_DIR/data/${D}_by_${D}_mult/train.txt" \
