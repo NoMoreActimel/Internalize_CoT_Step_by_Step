@@ -4,7 +4,7 @@ cd /home/ss19021/Internalize_CoT_Step_by_Step/ || exit
 
 D=7
 SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
-DIR="$SCRATCH_DIR/train_models/${D}_by_${D}_mult/gpt2_pretrained/sbs_from_scratch/"
+DIR="$SCRATCH_DIR/train_models/${D}_by_${D}_mult/gpt2_pretrained/sbs_from_scratch_ft_10_04_03_25/"
 mkdir -p "$DIR"
 
 export WANDB_API_KEY="96b7c9ce4fa58a9b8254a7e3b14ef24071ecd75e"
@@ -29,7 +29,8 @@ python src/train.py \
     --reset_optimizer \
     --save_model "$DIR" \
     --wandb_project cot-distillation \
-    --wandb_run_name sbs_${D}b${D}_from_scratch \
+    --wandb_run_name sbs_${D}b${D}_from_scratch_ft_10 \
     --max_new_tokens 512 \
     --save_model "$DIR" \
+    --from_pretrained_checkpoint /scratch/ss19021/Internalize_CoT_Step_by_Step/train_models/7_by_7_mult/gpt2_pretrained/sbs_from_scratch/checkpoint-epoch10.pth \
     > "$DIR/log_stepbystep.train" 2>&1
