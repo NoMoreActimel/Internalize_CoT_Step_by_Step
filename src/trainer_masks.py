@@ -269,7 +269,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 # Recover all COT tokens in labels in case of mask replacement
                 ids_to_cat.append(ids[..., start:end])
             else:
-                mask_shape = ids.shape
+                mask_shape = torch.tensor(ids.shape, device=ids.device)
                 mask_shape[-1] = end - start
                 mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id, dtype=torch.long)
                 ids_to_cat.append(mask_tensor)

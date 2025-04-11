@@ -4,9 +4,8 @@ import random
 import torch
 import tqdm
 
-from data import extract_answer
 from trainer_base import BaseTrainer
-from utils import get_sep_position, batch_ids, save_model
+from utils import get_sep_position, batch_ids
 
 
 class ChunkRemovalTrainer(BaseTrainer):

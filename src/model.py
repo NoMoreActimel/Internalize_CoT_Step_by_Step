@@ -18,8 +18,8 @@ class ImplicitModel(nn.Module):
         self.config = config
         self.base_model = AutoModelForCausalLM.from_pretrained(
             config.base_model,
-            trust_remote_code=True,
-            attn_implementation="sdpa" if not use_flash_attention else "flash_attention_2"
+            trust_remote_code=True
+            # attn_implementation="sdpa" if not use_flash_attention else "flash_attention_2"
         )
         if reinitialize_weights:
             print ('Reinitializing model weights!')
