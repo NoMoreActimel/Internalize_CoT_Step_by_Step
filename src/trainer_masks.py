@@ -265,7 +265,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             ids_to_cat.append(ids[..., cot_start:start])
 
         if self.args.replace_mask:
-            if labels_flag:
+            if labels_flag and (not self.args.replace_mask_in_labels):
                 # Recover all COT tokens in labels in case of mask replacement
                 ids_to_cat.append(ids[..., start:end])
             else:
@@ -490,7 +490,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 input_ids_cot_masked = input_ids[batch_idx, cot_start:cot_end].detach()
                 input_ids_cot_masked[mask] = self.mask_id
                 input_ids_insert = torch.cat([prefix, input_ids_cot_masked])
-                labels_insert = torch.cat([ignored_prefix_labels, input_ids_cot_masked.clone()])
+
+                if self.args.replace_mask_in_labels:
+                    labels_insert = torch.cat([ignored_prefix_labels, input_ids_cot_masked.clone()])
+                else:
+                    input_ids_cot = input_ids[batch_idx, cot_start:cot_end].detach().clone()
+                    labels_insert = torch.cat([ignored_prefix_labels, input_ids_cot])
 
             input_ids_new.append(torch.cat([
                 input_ids[batch_idx, :cot_start - 1],  # move EOS_TOKEN_ID in prefix

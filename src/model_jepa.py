@@ -14,6 +14,7 @@ class JEPAImplicitModel(ImplicitModel):
             ref_model,
             alpha_logits_loss=1.0,
             ref_model_update_decay=0.999,
+            logits_loss_on_full_cot=False,
             reinitialize_weights=False,
             use_flash_attention=False
     ):
@@ -27,6 +28,7 @@ class JEPAImplicitModel(ImplicitModel):
         super().__init__(config, reinitialize_weights, use_flash_attention)
         self.alpha_logits_loss = alpha_logits_loss
         self.ref_model_update_decay = ref_model_update_decay
+        self.logits_loss_on_full_cot = logits_loss_on_full_cot
         self.ref_model = ref_model
         self.ref_model.eval()
 
@@ -50,24 +52,34 @@ class JEPAImplicitModel(ImplicitModel):
         B, L, D = logits.shape
         B, L_ref, D = ref_logits.shape
     
-        # skip=0 and skip=1 because it's labels
-        answer_start_positions = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=0).unsqueeze(1)
-        answer_end_positions = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=1).unsqueeze(1)
-        ref_answer_start_positions = get_sep_position(full_labels, sep_id=self.tokenizer.eos_token_id, skip=0).unsqueeze(1)
-        ref_answer_end_positions = get_sep_position(full_labels, sep_id=self.tokenizer.eos_token_id, skip=1).unsqueeze(1)
-        
-        position_ids = torch.arange(L, device=labels.device).unsqueeze(0).expand(B, L)
-        ref_position_ids = torch.arange(L_ref, device=labels.device).unsqueeze(0).expand(B, L_ref)
-        
-        mask = (position_ids >= answer_start_positions) * (position_ids <= answer_end_positions)
-        ref_mask = (ref_position_ids >= ref_answer_start_positions) * (ref_position_ids <= ref_answer_end_positions)
-        mask_flat = mask.view(B * L)
-        ref_mask_flat = ref_mask.view(B * L_ref)
+        if self.logits_loss_on_full_cot:
+            assert L == L_ref, f"""
+                For full-COT logits loss input_ids and ref_input_ids must have the same shape.
+                Got input_ids.shape: {input_ids.shape}, ref_input_ids.shape: {full_input_ids.shape}
+            """
+            logits_loss = nn.functional.mse_loss(
+                logits.vew(B * L, D),
+                ref_logits.view(B * L_ref, D)
+            )
+        else:
+            # skip=0 and skip=1 because it's labels
+            answer_start_positions = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=0).unsqueeze(1)
+            answer_end_positions = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=1).unsqueeze(1)
+            ref_answer_start_positions = get_sep_position(full_labels, sep_id=self.tokenizer.eos_token_id, skip=0).unsqueeze(1)
+            ref_answer_end_positions = get_sep_position(full_labels, sep_id=self.tokenizer.eos_token_id, skip=1).unsqueeze(1)
+            
+            position_ids = torch.arange(L, device=labels.device).unsqueeze(0).expand(B, L)
+            ref_position_ids = torch.arange(L_ref, device=labels.device).unsqueeze(0).expand(B, L_ref)
+            
+            mask = (position_ids >= answer_start_positions) * (position_ids <= answer_end_positions)
+            ref_mask = (ref_position_ids >= ref_answer_start_positions) * (ref_position_ids <= ref_answer_end_positions)
+            mask_flat = mask.view(B * L)
+            ref_mask_flat = ref_mask.view(B * L_ref)
 
-        logits_loss = nn.functional.mse_loss(
-            logits.view(B * L, D)[mask_flat],
-            ref_logits.view(B * L_ref, D)[ref_mask_flat]
-        )
+            logits_loss = nn.functional.mse_loss(
+                logits.view(B * L, D)[mask_flat],
+                ref_logits.view(B * L_ref, D)[ref_mask_flat]
+            )
 
         labels_pred = logits.argmax(-1)
         mask = labels[...,1:].ge(0)

@@ -82,6 +82,7 @@ def create_jepa_model(config, ref_model, args, ptdtype, device):
             ref_model=ref_model,
             alpha_logits_loss=args.alpha_logits_loss,
             ref_model_update_decay=args.ref_model_update_decay,
+            logits_loss_on_full_cot=args.logits_loss_on_full_cot,
             reinitialize_weights=args.train_from_scratch,
             use_flash_attention=args.flash_attention_2
         ).to(device).to(ptdtype)
@@ -92,6 +93,7 @@ def create_jepa_model(config, ref_model, args, ptdtype, device):
             ref_model=ref_model,
             alpha_logits_loss=args.alpha_logits_loss,
             ref_model_update_decay=args.ref_model_update_decay,
+            logits_loss_on_full_cot=args.logits_loss_on_full_cot,
             reinitialize_weights=False,
             use_flash_attention=args.flash_attention_2
         ).to(device).to(ptdtype)
@@ -176,17 +178,23 @@ def main():
     parser.add_argument('--removal_type', type=str, choices=['step-by-step', 'random-chunks', 'random-masks'], default='step-by-step')
 
     parser.add_argument('--train_type', type=str, choices=['full-cot', 'cot-distill', 'jepa-cot-distill'], default='cot-distill', help="""
-        Type of Training:
-        - 'full-cot': simply train on full Chains-of-Thought data
-        - 'cot-distill': for different types of Chains-of-Thought distillation, by removal_type (default)
-        - 'jepa-cot-distill': for JEPA-like COT distillation training.
-            That is, match logits / last hidden states on [answer] part
-            between reference model on full COTs and current model on corrupted COTs.
-            Works only with --removal_type 'random-masks' trainer.
-        """
-    )
+                        Type of Training:
+                        - 'full-cot': simply train on full Chains-of-Thought data
+                        - 'cot-distill': for different types of Chains-of-Thought distillation, by removal_type (default)
+                        - 'jepa-cot-distill': for JEPA-like COT distillation training.
+                            That is, match logits / last hidden states on [answer] part
+                            between reference model on full COTs and current model on corrupted COTs.
+                            Works only with --removal_type 'random-masks' trainer.
+                        """)
+
+    # JEPA-like training flags    
     parser.add_argument('--alpha_logits_loss', type=float, default=1.0, help='JEPA loss multiplier')
-    parser.add_argument('--ref_model_update_decay', type=float, default=0.999, help='Coefficient for EMA on ref model weights in JEPA training')
+
+    parser.add_argument('--ref_model_update_decay', type=float, default=0.999, help="""
+                        Coefficient for EMA on ref model weights in JEPA training""")
+    
+    parser.add_argument('--logits_loss_on_full_cot', action='store_true', default=False, help="""
+                        Whether to put logits loss on full-COT + answer, or answer only (by default)""")
 
     # RANDOM MASKS REMOVAL
 
@@ -202,6 +210,9 @@ def main():
 
     # Replace the masked tokens with special mask_id (removed by default):
     parser.add_argument('--replace_mask', action='store_true', default=False)
+    parser.add_argument('--replace_mask_in_labels', action='store_true', default=False, help="""
+                        Target labels on training will have masked COTs.
+                        Works only together with --replace_mask""")
 
     # if we need to remove ## removed N ## hint - fine-tune on plain no-COT data
     parser.add_argument('--no_cot_stage', action='store_true', default=False)
