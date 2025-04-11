@@ -31,9 +31,8 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
         DatasetClass = CoTChunksHFDataset if args.huggingface_dataset else CoTDatasetChunks
         CollateClass = CoTDataCollatorChunks
 
-        dataset_kwargs["max_length"] = args.max_len_train,
-        dataset_kwargs["chunk_size"] = args.chunk_size if args.removal_type == 'random-chunks' else None,
-        dataset_kwargs["num_new_tokens"] = args.num_new_tokens if args.removal_type == 'random-chunks' else 0,
+        dataset_kwargs["chunk_size"] = args.chunk_size if args.removal_type == 'random-chunks' else None
+        dataset_kwargs["num_new_tokens"] = args.num_new_tokens if args.removal_type == 'random-chunks' else 0
         dataset_kwargs["new_token_ids"] = new_token_ids if args.removal_type == 'random-chunks' else None
     else:
         raise ValueError(f'args.removal_type must be either "step-by-step", "random-chunks", "random-masks", found {args.removal_type}')
