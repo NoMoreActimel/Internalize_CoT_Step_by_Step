@@ -42,30 +42,30 @@ def add_new_tokens(model, tokenizer, num_new_tokens):
     return model, tokenizer, new_token_ids
 
 
-class CoTDatasetAssignedChunks(Dataset):
-    def __init__(self, tokenizer, file_path, max_length=-1, max_size=-1, chunk_size=8, num_new_tokens=1000, new_token_ids=None):
+class CoTDatasetChunks(Dataset):
+    def __init__(self, tokenizer, path, max_length=-1, max_size=-1, chunk_size=8, num_new_tokens=1000, new_token_ids=None):
         """
             This dataset precomputes chunk positions for each of the samples in the file_path,
             assigning randomly sampled new_token_ids for each chunk.
         """
         super().__init__()
 
-        assert os.path.isfile(file_path), f"Input file path {file_path} not found"
-        print (f'Creating features from dataset file at {file_path}')
+        assert os.path.isfile(path), f"Input file path {path} not found"
+        print (f'Creating features from dataset file at {path}')
 
         self.tokenizer, self.new_token_ids = tokenizer, new_token_ids
         
         self.eos_tok = self.tokenizer.eos_token
         self.separator = tokenizer.eos_token_id
 
-        self.file_path = file_path
+        self.file_path = path
         self.max_length = max_length
         self.max_size = max_size
         self.chunk_size = chunk_size
         self.num_new_tokens = num_new_tokens
 
         lines = self._read_lines()
-        self.examples_all = self._process_examples(lines)
+        self.dataset = self._process_examples(lines)
         
 
     def _read_lines(self):
@@ -117,10 +117,10 @@ class CoTDatasetAssignedChunks(Dataset):
         return examples_all
             
     def __len__(self):
-        return len(self.examples_all)
+        return len(self.dataset)
 
     def __getitem__(self, i):
-        item = self.examples_all[i]
+        item = self.dataset[i]
         input_ids = item["input_ids"]
 
         labels = copy.deepcopy(input_ids)
@@ -134,10 +134,9 @@ class CoTDatasetAssignedChunks(Dataset):
             "chunk_input_ids": torch.tensor(item["chunk_input_ids"], dtype=torch.long) if self.num_new_tokens else None,
             "chunk_positions": item["chunk_positions"] if self.chunk_size else None
         }
-    
 
 @dataclass
-class CoTDataCollatorAssignedChunks:
+class CoTDataCollatorChunks:
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
 

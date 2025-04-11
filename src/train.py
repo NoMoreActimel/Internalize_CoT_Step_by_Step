@@ -8,13 +8,11 @@ import logging
 import random
 import torch
 
-from torch.utils.data import DataLoader
-
+from data import load_data
+from data_chunked import add_new_tokens
 from model import ImplicitModel
 from model_jepa import JEPAImplicitModel
 from configuration_model import ImplicitModelConfig
-from data import CoTDataset, CoTDataCollator
-from data_chunked import CoTDatasetAssignedChunks, CoTDataCollatorAssignedChunks, add_new_tokens
 from trainer_stepbystep import StepByStepTrainer
 from trainer_chunks import ChunkRemovalTrainer
 from trainer_masks import AuxiliarMasksRemovalTrainer
@@ -108,46 +106,6 @@ def create_jepa_model(config, ref_model, args, ptdtype, device):
     
     return config, model, model.tokenizer
 
-def load_data(args, tokenizer, new_token_ids=None):
-    if args.removal_type == 'step-by-step':
-        DatasetClass = CoTDataset
-        CollateClass = CoTDataCollator
-        default_dataset_args = {"max_length": args.max_len_train}
-    elif args.removal_type == 'random-chunks':
-        DatasetClass = CoTDatasetAssignedChunks
-        CollateClass = CoTDataCollatorAssignedChunks
-        default_dataset_args = {
-            "max_length": args.max_len_train,
-            "chunk_size": args.chunk_size,
-            "num_new_tokens": args.num_new_tokens,
-            "new_token_ids": new_token_ids
-        }
-    elif args.removal_type == 'random-masks':
-        DatasetClass = CoTDatasetAssignedChunks
-        CollateClass = CoTDataCollatorAssignedChunks
-        default_dataset_args = {
-            "max_length": args.max_len_train,
-            "chunk_size": None,
-            "num_new_tokens": 0,
-            "new_token_ids": None
-        }
-    else:
-        raise ValueError(f'args.removal_type must be either "step-by-step", "random-chunks", "random-masks", found {args.removal_type}')
-    
-    collate_fn = CollateClass(tokenizer)
-    train_dataset = DatasetClass(tokenizer, args.train_path, max_size=args.max_size, **default_dataset_args)
-    val_dataset = DatasetClass(tokenizer, args.val_path, **default_dataset_args)
-
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=False)
-
-    if args.test_path:
-        test_dataset = DatasetClass(tokenizer, args.test_path, **default_dataset_args)
-        test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=False)
-        return train_dataloader, val_dataloader, test_dataloader
-    
-    return train_dataloader, val_dataloader, None
-
 
 def parse_tuple_list(arg):
     try:
@@ -166,6 +124,18 @@ def main():
     parser.add_argument('--train_path', type=str, required=True)
     parser.add_argument('--val_path', type=str, required=True)
     parser.add_argument('--test_path', type=str, default=None)
+
+    # HuggingFace Dataset
+    parser.add_argument('--huggingface_dataset', action='store_true', default=False)
+    parser.add_argument('--path', type=str, default=None)
+    parser.add_argument('--name', type=str, default=None)
+    parser.add_argument('--split', type=str, default=None)
+    parser.add_argument('--data_files', type=str, default=None)
+    parser.add_argument('--max_samples', type=str, default=None)
+    parser.add_argument('--shuffle', type=str, default=None)
+    parser.add_argument('--shuffle_seed', type=str, default=None)
+    parser.add_argument('--question_key', type=str, default="question")
+    parser.add_argument('--answer_key', type=str, default="answer")
 
     parser.add_argument('--epochs', type=int, default=1)
     parser.add_argument('--lr', type=float, default=5e-5)
