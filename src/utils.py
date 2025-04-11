@@ -47,6 +47,27 @@ def get_sep_position(input_ids, sep_id, skip=0):
     return sep_positions
 
 
+def extract_answer(text):
+    split_pattern = '####'
+    if split_pattern not in text:
+        return text.strip().replace(',', '')
+    else:
+        _, ans = text.strip().split('####', 1)
+        ans = '####' + ans
+        ans = ans.strip().replace(',', '')
+        return ans
+
+def extract_cot(text):
+    split_pattern = '####'
+    if split_pattern not in text:
+        #import pdb; pdb.set_trace()
+        return None
+    else:
+        cot, _ = text.strip().split('####', 1)
+        cot = cot.strip()
+        return cot
+
+
 # Stop generation only after generating two EOSs, such as  z <eos> y <eos>
 class DoubleEOSStoppingCriteria(StoppingCriteria):
     def __init__(self, eos_token_id):

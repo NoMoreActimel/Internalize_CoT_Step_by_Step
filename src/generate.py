@@ -12,9 +12,8 @@ import logging
 import random
 from model import ImplicitModel
 
-from data import extract_answer
 from data_stepbystep import CoTDataset, CoTDataCollator
-from utils import get_sep_position
+from utils import get_sep_position, extract_answer
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True

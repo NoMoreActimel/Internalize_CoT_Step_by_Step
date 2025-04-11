@@ -6,8 +6,7 @@ import torch
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
-from data import extract_answer, extract_cot
-from utils import get_sep_position
+from utils import get_sep_position, extract_answer, extract_cot
 
 
 def get_chunks_positions(sample, tokenizer, chunk_size):

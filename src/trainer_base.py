@@ -2,8 +2,7 @@ import math
 import tqdm
 import torch
 
-from data import extract_answer
-from utils import get_sep_position
+from utils import get_sep_position, extract_answer
 from writer import WanDBWriter, MetricTracker
 
 class BaseTrainer:
