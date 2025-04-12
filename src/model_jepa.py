@@ -66,8 +66,10 @@ class JEPAImplicitModel(ImplicitModel):
             # skip=0 and skip=1 because it's labels
             answer_start_positions = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=0).unsqueeze(1)
             answer_end_positions = get_sep_position(labels, sep_id=self.tokenizer.eos_token_id, skip=1).unsqueeze(1)
-            ref_answer_start_positions = get_sep_position(full_labels, sep_id=self.tokenizer.eos_token_id, skip=0).unsqueeze(1)
-            ref_answer_end_positions = get_sep_position(full_labels, sep_id=self.tokenizer.eos_token_id, skip=1).unsqueeze(1)
+
+            # skip=1 and skip=2 because it's full_labels, which are created without -100's
+            ref_answer_start_positions = get_sep_position(full_labels, sep_id=self.tokenizer.eos_token_id, skip=1).unsqueeze(1)
+            ref_answer_end_positions = get_sep_position(full_labels, sep_id=self.tokenizer.eos_token_id, skip=2).unsqueeze(1)
             
             position_ids = torch.arange(L, device=labels.device).unsqueeze(0).expand(B, L)
             ref_position_ids = torch.arange(L_ref, device=labels.device).unsqueeze(0).expand(B, L_ref)

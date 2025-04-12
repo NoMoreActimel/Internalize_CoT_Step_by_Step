@@ -546,7 +546,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 full_input_ids_new.append(torch.cat([
                     input_ids[batch_idx, :cot_start - 1],  # move EOS_TOKEN_ID in prefix
                     prefix,
-                    input_ids[batch_idx, cot_start:cot_end].detach().clone()
+                    input_ids[batch_idx, cot_start:eos + 1].detach().clone()
                 ]))
 
             if self.args.keep_position:
