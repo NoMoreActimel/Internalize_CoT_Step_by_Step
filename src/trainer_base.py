@@ -103,7 +103,7 @@ class BaseTrainer:
 
             with self.ctx:
                 if self.args.keep_position:
-                    position_ids_all = position_ids_all[:, :batch["input_ids"].shape[-1]]
+                    batch["position_ids"] = batch["position_ids"][:, :batch["input_ids"].shape[-1]]
                 outputs = self.model.compute_loss(**batch)
 
             total_loss += outputs.total_loss.item()
@@ -116,19 +116,17 @@ class BaseTrainer:
             if perform_generative_eval and batch_idx == 0:
                 if generation_kwargs.get("position_ids_shift", None) is not None:
                     generation_kwargs["position_ids_shift"] = getattr(self, "n_tokens_removed", None)
-
-                input_ids_all = batch["input_ids"]
                 
-                first_sep_positions = get_sep_position(input_ids_all, self.tokenizer.eos_token_id)
+                first_sep_positions = get_sep_position(batch["input_ids"], self.tokenizer.eos_token_id)
                 beam_outputs = self.model.generate(
-                    input_ids=input_ids_all,
-                    position_ids=position_ids_all,
+                    input_ids=batch["input_ids"],
+                    position_ids=batch["position_ids"],
                     **generation_kwargs
                 )
 
-                total_generated += input_ids_all.shape[0]
+                total_generated += batch["input_ids"].shape[0]
 
-                for i, (input_ids_all_i, beam_output_i) in enumerate(zip(input_ids_all, beam_outputs)):
+                for i, (input_ids_all_i, beam_output_i) in enumerate(zip(batch["input_ids"], beam_outputs)):
                     tgt = input_ids_all_i[first_sep_positions[i] + 1:]
                     tgt_text = self.tokenizer.decode(tgt, skip_special_tokens=True)
                     ans = extract_answer(tgt_text)
