@@ -271,7 +271,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             else:
                 mask_shape = list(ids.shape)
                 mask_shape[-1] = (end - start).item()
-                mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id.item(), dtype=torch.long)
+                mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id.item(), dtype=torch.long, device=ids.device)
                 ids_to_cat.append(mask_tensor)
         
         ids_to_cat.append(ids[..., end:eos + 1])
