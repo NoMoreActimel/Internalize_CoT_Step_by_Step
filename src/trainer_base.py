@@ -57,6 +57,12 @@ class BaseTrainer:
             norm_type,
         )
         return total_norm.item()
+
+    @staticmethod
+    def move_batch_to_device(batch, device):
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                batch[k] = v.to(device)
     
     def _reset_optimizer(self):
         print ('RESETTING OPTIMIZER')
@@ -92,45 +98,26 @@ class BaseTrainer:
         total_generated = 0
 
         for batch_idx, batch in tqdm.tqdm(enumerate(dataloader)):
-            if self.jepa_training:
-                full_input_ids = batch["input_ids"].to(self.device).clone()
-                full_labels = batch["labels"].to(self.device).clone()
-                full_position_ids = self._get_position_ids(full_input_ids)
-
-            input_ids_all = batch['input_ids'].to(self.device)
-            labels_all = batch['labels'].to(self.device)
-            input_ids_all, labels_all, position_ids_all, _ = self.process_input_truncation(batch, **truncation_kwargs)
+            batch, _ = self.process_input_truncation(batch, **truncation_kwargs)
+            self.move_batch_to_device(batch, self.device)
 
             with self.ctx:
                 if self.args.keep_position:
-                    position_ids_all = position_ids_all[:, :input_ids_all.shape[-1]]
-
-                if self.jepa_training:
-                    outputs = self.model.compute_loss(
-                        input_ids=input_ids_all,
-                        labels=labels_all,
-                        position_ids=position_ids_all,
-                        full_input_ids=full_input_ids,
-                        full_labels=full_labels,
-                        full_position_ids=full_position_ids
-                    )
-                else:
-                    outputs = self.model.compute_loss(
-                        input_ids=input_ids_all,
-                        labels=labels_all,
-                        position_ids=position_ids_all
-                    )
+                    position_ids_all = position_ids_all[:, :batch["input_ids"].shape[-1]]
+                outputs = self.model.compute_loss(**batch)
 
             total_loss += outputs.total_loss.item()
             total_correct_tokens += outputs.total_correct.item()
             total_tokens += outputs.total_tokens
-            total_instances += input_ids_all.shape[0]
+            total_instances += batch["input_ids"].shape[0]
 
             # Generate + Evaluate
             # input_ids_all are cut to the start of COTs inside the model.generate
             if perform_generative_eval and batch_idx == 0:
                 if generation_kwargs.get("position_ids_shift", None) is not None:
                     generation_kwargs["position_ids_shift"] = getattr(self, "n_tokens_removed", None)
+
+                input_ids_all = batch["input_ids"]
                 
                 first_sep_positions = get_sep_position(input_ids_all, self.tokenizer.eos_token_id)
                 beam_outputs = self.model.generate(

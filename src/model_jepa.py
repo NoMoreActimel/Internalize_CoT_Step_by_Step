@@ -40,7 +40,8 @@ class JEPAImplicitModel(ImplicitModel):
             full_input_ids=None,
             full_labels=None,
             full_position_ids=None,
-            output_attentions=False
+            output_attentions=False,
+            **kwargs
     ):
         outputs = self.forward(input_ids=input_ids, position_ids=position_ids, output_attentions=output_attentions)
         logits = outputs.logits

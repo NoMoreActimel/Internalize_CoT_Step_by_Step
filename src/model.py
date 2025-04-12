@@ -34,7 +34,7 @@ class ImplicitModel(nn.Module):
             outputs = self.base_model.forward(input_ids=input_ids, output_attentions=output_attentions)
         return outputs
 
-    def compute_loss(self, input_ids, labels, position_ids=None, output_attentions=False):
+    def compute_loss(self, input_ids, labels, position_ids=None, output_attentions=False, **kwargs):
         outputs = self.forward(input_ids=input_ids, position_ids=position_ids, output_attentions=output_attentions)
         logits = outputs.logits
 
