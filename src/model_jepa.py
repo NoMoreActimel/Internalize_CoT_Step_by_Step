@@ -59,7 +59,7 @@ class JEPAImplicitModel(ImplicitModel):
                 Got input_ids.shape: {input_ids.shape}, ref_input_ids.shape: {full_input_ids.shape}
             """
             logits_loss = nn.functional.mse_loss(
-                logits.vew(B * L, D),
+                logits.view(B * L, D),
                 ref_logits.view(B * L_ref, D)
             )
         else:
