@@ -219,4 +219,10 @@ class StepByStepTrainer(BaseTrainer):
         input_ids = batch_ids(input_ids_tmp, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
         labels = batch_ids(labels_tmp, -100, self.device, input_ids.dtype)
 
-        return input_ids, labels, position_ids, all_cot_removed_in_batch
+        batch = {
+            "input_ids": input_ids,
+            "labels": labels,
+            "position_ids": position_ids
+        }
+
+        return batch, all_cot_removed_in_batch
