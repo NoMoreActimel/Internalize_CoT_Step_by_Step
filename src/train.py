@@ -142,6 +142,8 @@ def main():
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--accumulate', type=int, default=1)
 
+    parser.add_argument('--n_generative_eval_batches', type=int, default=1)
+
     parser.add_argument('--train_from_scratch', action='store_true', default=False)
     parser.add_argument('--mode', type=str, choices=['train', 'eval'], default='train')
 

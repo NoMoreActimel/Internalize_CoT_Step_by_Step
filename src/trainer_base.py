@@ -113,7 +113,7 @@ class BaseTrainer:
 
             # Generate + Evaluate
             # input_ids_all are cut to the start of COTs inside the model.generate
-            if perform_generative_eval and batch_idx == 0:
+            if perform_generative_eval and batch_idx < getattr(self.args, "n_generative_eval_batches", 1):
                 if generation_kwargs.get("position_ids_shift", None) is not None:
                     generation_kwargs["position_ids_shift"] = getattr(self, "n_tokens_removed", None)
                 

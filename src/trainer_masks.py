@@ -53,6 +53,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.mask_id = torch.tensor(self.tokenizer.encode("Mask"))
         if len(self.mask_id) != 1:
             self.mask_id = torch.tensor(self.tokenizer.encode("M"))
+            if len(self.mask_id) != 1: # supposing the tokenizer prepends BOS
+                self.mask_id = self.mask_id[-1]
         self.mask_id = self.mask_id.to(self.device)
 
         # Metrics
