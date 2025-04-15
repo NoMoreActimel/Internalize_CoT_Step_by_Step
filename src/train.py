@@ -121,8 +121,8 @@ def parse_tuple_list(arg):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='gpt2')
-    parser.add_argument('--train_path', type=str, required=True)
-    parser.add_argument('--val_path', type=str, required=True)
+    parser.add_argument('--train_path', type=str, required=False)
+    parser.add_argument('--val_path', type=str, required=False)
     parser.add_argument('--test_path', type=str, default=None)
 
     # HuggingFace Dataset
@@ -132,8 +132,8 @@ def main():
     parser.add_argument('--split', type=str, default=None)
     parser.add_argument('--data_files', type=str, default=None)
     parser.add_argument('--max_samples', type=str, default=None)
-    parser.add_argument('--shuffle', type=str, default=None)
-    parser.add_argument('--shuffle_seed', type=str, default=None)
+    parser.add_argument('--shuffle', action='store_true', default=False)
+    parser.add_argument('--shuffle_seed', type=int, default=None)
     parser.add_argument('--question_key', type=str, default="question")
     parser.add_argument('--answer_key', type=str, default="answer")
 

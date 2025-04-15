@@ -10,14 +10,14 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     if args.huggingface_dataset:
         assert args.removal_type == 'random-chunks' or args.removal_type == 'random-masks'
         dataset_kwargs["path"] = args.path
-        dataset_kwargs["name"] = args.hf_dataset_name
-        dataset_kwargs["split"] = args.hf_dataset_split
-        dataset_kwargs["data_files"] = args.hf_dataset_data_files
-        dataset_kwargs["max_samples"] = args.hf_dataset_max_samples
-        dataset_kwargs["shuffle"] = args.hf_dataset_shuffle
-        dataset_kwargs["shuffle_seed"] = args.hf_dataset_shuffle_seed
-        dataset_kwargs["question_key"] = args.hf_dataset_question_key
-        dataset_kwargs["answer_key"] = args.hf_dataset_answer_key
+        dataset_kwargs["name"] = args.name
+        dataset_kwargs["split"] = args.split
+        dataset_kwargs["data_files"] = args.data_files
+        dataset_kwargs["max_samples"] = args.max_samples
+        dataset_kwargs["shuffle"] = args.shuffle
+        dataset_kwargs["shuffle_seed"] = args.shuffle_seed
+        dataset_kwargs["question_key"] = args.question_key
+        dataset_kwargs["answer_key"] = args.answer_key
     else:
         dataset_kwargs["path"] = getattr(args, f"{split}_path")
     
