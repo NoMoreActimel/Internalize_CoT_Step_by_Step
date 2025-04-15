@@ -20,7 +20,6 @@ python src/train.py \
     --joint_masked_distribution \
     --random_contiguous_removal \
     --replace_mask \
-    --train_from_scratch \
     --pretrain_epochs 0 \
     --seed 3456 \
     --reset_optimizer \
