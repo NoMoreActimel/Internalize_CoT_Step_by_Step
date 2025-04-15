@@ -28,7 +28,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.random_contiguous_removal = args.random_contiguous_removal
 
         self.removal_p = self.masks_removal_schedule[self.schedule_index][1]
-        self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+        if self.args.replace_mask:
+            self.val_removal_ps = [0.0, 1.0]
+        else:
+            self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 1.0]
+        
 
         self.val_truncation_kwargs = {
             "eval_flag": self.joint_masked_distribution
