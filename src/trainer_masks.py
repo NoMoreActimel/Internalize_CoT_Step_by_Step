@@ -36,6 +36,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.val_generation_kwargs = {
             "max_new_tokens": self.args.max_new_tokens,
             "stop_on_two_eos": True,
+            "use_inputs_cot": False,
             "position_ids_shift": self.args.keep_position and self.joint_masked_distribution and self.left_to_right_removal
         }
 
@@ -148,6 +149,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 name = f"val_{val_removal_p}" if val_removal_p != 1.0 else "val"
                 if self.writer:
                     self.writer.set_step(step, mode=name)
+                
+                if val_removal_p == 1.0 and self.args.replace_mask:
+                    self.val_generation_kwargs["use_inputs_cot"] = True
+                else:
+                    self.val_generation_kwargs["use_inputs_cot"] = False
+
                 self.evaluate(
                     dataloader=self.val_dataloader,
                     name=name,

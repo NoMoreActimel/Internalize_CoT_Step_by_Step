@@ -66,9 +66,10 @@ class ImplicitModel(nn.Module):
             use_new_tokens=False,
             new_tokens_start_id=None,
             inputs_with_cot=True,
+            use_inputs_cot=False,
             position_ids_shift=None
     ):
-        sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id)
+        sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=1 if use_inputs_cot else 0)
         batch_size = input_ids.shape[0]
 
         # Since there's one eos after CoT and another after final answer, we need to wait for two eos
