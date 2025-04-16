@@ -76,7 +76,7 @@ class ImplicitModel(nn.Module):
         generation_config = GenerationConfig.from_model_config(self.base_model.config)
         if hasattr(generation_config, 'pad_token_id'):
             generation_config.pad_token_id = None #TODO: this might not be necessary
-        if stop_on_two_eos:
+        if stop_on_two_eos and not use_inputs_cot:
             generation_config.eos_token_id = -1
             logits_processor = LogitsProcessorList([DoubleEOSLogitsProcessor(self.tokenizer.eos_token_id)])
             stopping_criteria = StoppingCriteriaList([DoubleEOSStoppingCriteria(self.tokenizer.eos_token_id)])
