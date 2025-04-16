@@ -65,21 +65,19 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.setup_metrics(additional_metrics=additional_metrics)
     
     def _train_process(self):
+        step = 0
+
         if self.args.from_pretrained_checkpoint:
-            self._resume_checkpoint(self.args.from_pretrained_checkpoint)
+            step = self._resume_checkpoint(self.args.from_pretrained_checkpoint)
 
         # If JEPA model starts training from plain full-COT model
         if self.args.from_pretrained_fullcot_checkpoint:
-            self._resume_checkpoint(self.args.from_pretrained_fullcot_checkpoint, load_optimizer_state=False)
+            step = self._resume_checkpoint(self.args.from_pretrained_fullcot_checkpoint, load_optimizer_state=False)
 
-        batch_size = self.args.batch_size
-        step = self.start_epoch * ((len(self.train_dataloader) + batch_size - 1) // batch_size)
-        if self.writer: self.writer.set_step(step, mode="train")
+        if self.writer:
+            self.writer.set_step(step, mode="train")
 
-        # best_val_accuracy = float('-inf')
         loss_log = []
-
-
         for epoch in range(self.start_epoch, self.start_epoch + self.args.epochs):
             self.epoch = epoch
             if self.writer:
@@ -152,26 +150,29 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
 
-            for val_removal_p in self.val_removal_ps:
-                name = f"val_{val_removal_p}" if val_removal_p != 1.0 else "val"
-                if self.writer:
-                    self.writer.set_step(step, mode=name)
-                
-                if val_removal_p == 1.0 and self.args.replace_mask:
-                    self.val_generation_kwargs["use_inputs_cot"] = True
-                else:
-                    self.val_generation_kwargs["use_inputs_cot"] = False
-
-                self.evaluate(
-                    dataloader=self.val_dataloader,
-                    name=name,
-                    truncation_kwargs={"val_removal_p": val_removal_p},
-                    generation_kwargs=self.val_generation_kwargs,
-                    perform_generative_eval=True
-                )
+            self.evaluate(step)
 
             self.save_epoch(epoch)
+    
+    def evaluate(self, step):
+        for val_removal_p in self.val_removal_ps:
+            name = f"val_{val_removal_p}" if val_removal_p != 1.0 else "val"
+            if self.writer:
+                self.writer.set_step(step, mode=name)
+            
+            if val_removal_p == 1.0 and self.args.replace_mask:
+                self.val_generation_kwargs["use_inputs_cot"] = True
+            else:
+                self.val_generation_kwargs["use_inputs_cot"] = False
 
+            self._evaluate(
+                dataloader=self.val_dataloader,
+                name=name,
+                truncation_kwargs={"val_removal_p": val_removal_p},
+                generation_kwargs=self.val_generation_kwargs,
+                perform_generative_eval=True
+            )
+        
     def process_input_truncation(self, batch, val_removal_p=None):
         input_ids = batch['input_ids'].to(self.device)
         labels = batch['labels'].to(self.device)

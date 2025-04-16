@@ -83,10 +83,13 @@ class BaseTrainer:
         pass
 
     def process_input_truncation(self):
-        pass    
+        pass
+
+    def evaluate(self, *args, **kwargs):
+        return self._evaluate(*args, **kwargs)
 
     @torch.no_grad()
-    def evaluate(self, dataloader, name, truncation_kwargs, generation_kwargs, perform_generative_eval=True):
+    def _evaluate(self, dataloader, name, truncation_kwargs, generation_kwargs, perform_generative_eval=True):
         self.model.eval()
         self.metrics_tracker.reset()
 
@@ -198,6 +201,7 @@ class BaseTrainer:
         print("Loading checkpoint: {} ...".format(resume_path))
         checkpoint = torch.load(resume_path, self.device)
         self.start_epoch = checkpoint["epoch"] + 1
+        step = self.start_epoch * ((len(self.train_dataloader) + self.args.batch_size - 1) // self.args.batch_size)
 
         # load architecture params from checkpoint.
         if checkpoint["config"]["model"] != self.config["model"]:
@@ -234,6 +238,7 @@ class BaseTrainer:
             # self.lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
 
         print("Checkpoint loaded. Resume training from epoch {}".format(self.start_epoch))
+        return step
 
     def log_scalars(self, metric_tracker: MetricTracker):
         if self.writer is None:

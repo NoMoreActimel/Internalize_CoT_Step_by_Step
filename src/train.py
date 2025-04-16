@@ -293,13 +293,10 @@ def main():
     if args.mode == "train":
         trainer.train()
     elif args.mode == "eval":
-        trainer.evaluate(
-            trainer.val_dataloader,
-            "val",
-            trainer.val_truncation_kwargs,
-            trainer.val_generation_kwargs,
-            perform_generative_eval=True
-        )
+        step = 0
+        if trainer.args.from_pretrained_checkpoint:
+            step = trainer._resume_checkpoint(trainer.args.from_pretrained_checkpoint)
+        trainer.evaluate(step=step)
     else:
         raise ValueError(f'args.mode must be either "train" or "eval", found {args.mode}')
 
