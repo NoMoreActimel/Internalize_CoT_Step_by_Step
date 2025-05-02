@@ -11,7 +11,7 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
         assert args.removal_type == 'random-chunks' or args.removal_type == 'random-masks'
         dataset_kwargs["path"] = args.path
         dataset_kwargs["name"] = args.name
-        dataset_kwargs["split"] = args.split
+        dataset_kwargs["split"] = split
         dataset_kwargs["data_files"] = args.data_files
         dataset_kwargs["max_samples"] = args.max_samples
         dataset_kwargs["shuffle"] = args.shuffle
