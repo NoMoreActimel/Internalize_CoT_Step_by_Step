@@ -114,6 +114,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             if not self.joint_masked_distribution:
                 print_line += f"; Scheduled to remove: {self.removal_p * 100}% of COT"
             print(print_line)
+            
+            if self.accelerator.is_main_process:
+                print(f">>> Using mixed precision: {self.accelerator.state.mixed_precision}")
 
             for batch in tqdm.tqdm(self.train_dataloader):
                 batch, all_cot_removed_in_batch = self.process_input_truncation(batch)
@@ -127,12 +130,17 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 if self.args.max_len_train > 0 and batch["input_ids"].shape[-1] > self.args.max_len_train:
                     print ('skipped')
                     continue
-            
+
                 with self.accelerator.accumulate(self.model):
                     with self.accelerator.autocast():
                         outputs = self.model.compute_loss(**batch)
+                        loss = outputs.loss
+                        logits = outputs.logits
+                        
+                    if self.accelerator.is_main_process:
+                        print("  logits autocast dtype:", logits.dtype)
+                        print("  loss autocast dtype:", loss.dtype)
 
-                    loss = outputs.loss
                     loss_log[-1].append(loss.item())
                     self.accelerator.backward(loss.div(self.args.accumulate))
                     grad_norm = self.get_grad_norm()
