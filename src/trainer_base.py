@@ -15,10 +15,12 @@ class BaseTrainer:
         self.model, self.optimizer, self.train_dataloader, self.val_dataloader, self.test_dataloader = \
             self.accelerator.prepare(model, optimizer, train_dataloader, val_dataloader, test_dataloader)
         self.tokenizer = tokenizer
-        
+
         mp = self.accelerator.state.mixed_precision
         dtype = torch.bfloat16 if mp == "bf16" else (torch.float16 if mp == "fp16" else torch.float32)
         self.model = self.model.to(dtype)
+
+        print(f"USING DTYPE {dtype} FOR TRAINING!")
 
         self.device = self.accelerator.device
         self.use_fused = use_fused
