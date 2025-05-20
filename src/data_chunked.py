@@ -128,7 +128,7 @@ class CoTDatasetChunks(Dataset):
         labels[:sep_idx] = -100
 
         return {
-            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "input_ids": torch.tensor(input_ids.clone().detach(), dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
             "chunk_input_ids": torch.tensor(item["chunk_input_ids"], dtype=torch.long) if self.num_new_tokens else None,
             "chunk_positions": item["chunk_positions"] if self.chunk_size else None
