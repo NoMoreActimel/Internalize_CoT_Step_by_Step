@@ -11,29 +11,23 @@ class BaseTrainer:
         self.args = args
         self.config = vars(args)
 
-
         self.accelerator = Accelerator(gradient_accumulation_steps=self.args.accumulate)
-        model, optimizer, train_dataloader, val_dataloader, test_dataloader = self.accelerator.prepare(
-            model, optimizer, train_dataloader, val_dataloader, test_dataloader,
-        )
+        self.model, self.optimizer, self.train_dataloader, self.val_dataloader, self.test_dataloader = \
+            self.accelerator.prepare(model, optimizer, train_dataloader, val_dataloader, test_dataloader)
+        self.tokenizer = tokenizer
+        
+        mp = self.accelerator.state.mixed_precision
+        dtype = torch.bfloat16 if mp == "bf16" else (torch.float16 if mp == "fp16" else torch.float32)
+        self.model = self.model.to(dtype)
+
         self.device = self.accelerator.device
         self.use_fused = use_fused
-
-        self.model = model
-        self.optimizer = optimizer
-        self.tokenizer = tokenizer
-
         self.jepa_training = hasattr(self.model, "ref_model")
-
-        self.train_dataloader = train_dataloader
-        self.val_dataloader = val_dataloader
-        self.test_dataloader = test_dataloader
 
         self.epoch = 0
         self.start_epoch = 0
         self.writer = None
         self.metrics_tracker = None
-
 
     def setup_metrics(self, additional_metrics=None):
         if self.args.wandb_project:
