@@ -42,26 +42,26 @@ def expand_gpt2_positions(model, args):
             persistent=False,
         )
 
-def create_model(args, ptdtype, device):
+def create_model(args, device):
     if args.from_pretrained is None:
-        config = ImplicitModelConfig(base_model=args.model)
+        config = ImplicitModelConfig(base_model=args.model) #, n_head=args.n_head)
         model = ImplicitModel(
             config,
             reinitialize_weights=args.train_from_scratch,
             use_flash_attention=args.flash_attention_2
-        ).to(device).to(ptdtype)
+        ).to(device)
     else:
         print (f'Loading from {args.from_pretrained}')
         model = ImplicitModel.from_pretrained(
             args.from_pretrained,
             use_flash_attention=args.flash_attention_2
-        ).to(device).to(ptdtype)
+        ).to(device)
         config = model.config
 
     if 'gpt2' in args.model:
         expand_gpt2_positions(model, args)
     
-    model = model.to(device).to(ptdtype)
+    model = model.to(device)
     tokenizer = model.tokenizer
 
     if args.reinitialize_weights:
@@ -73,7 +73,7 @@ def create_model(args, ptdtype, device):
     
     return config, model, tokenizer
 
-def create_jepa_model(config, ref_model, args, ptdtype, device):
+def create_jepa_model(config, ref_model, args, device):
     if args.from_pretrained is None:
         model = JEPAImplicitModel(
             config=config,
@@ -83,7 +83,7 @@ def create_jepa_model(config, ref_model, args, ptdtype, device):
             logits_loss_on_full_cot=args.logits_loss_on_full_cot,
             reinitialize_weights=args.train_from_scratch,
             use_flash_attention=args.flash_attention_2
-        ).to(device).to(ptdtype)
+        ).to(device)
     else:
         print (f'Loading from {args.from_pretrained}')
         model = JEPAImplicitModel(
@@ -94,7 +94,7 @@ def create_jepa_model(config, ref_model, args, ptdtype, device):
             logits_loss_on_full_cot=args.logits_loss_on_full_cot,
             reinitialize_weights=False,
             use_flash_attention=args.flash_attention_2
-        ).to(device).to(ptdtype)
+        ).to(device)
         state_dict = torch.load(os.path.join(args.from_pretrained, 'state_dict.bin'))
         model.load_state_dict(state_dict, strict=True)
 
@@ -121,6 +121,8 @@ def parse_tuple_list(arg):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='gpt2')
+    # parser.add_argument('--modified_n_head', type=int, default=None)
+
     parser.add_argument('--train_path', type=str, required=False)
     parser.add_argument('--val_path', type=str, required=False)
     parser.add_argument('--test_path', type=str, default=None)
@@ -129,7 +131,9 @@ def main():
     parser.add_argument('--huggingface_dataset', action='store_true', default=False)
     parser.add_argument('--path', type=str, default=None)
     parser.add_argument('--name', type=str, default=None)
-    parser.add_argument('--split', type=str, default=None)
+    parser.add_argument('--train_split', type=str, default=None)
+    parser.add_argument('--val_split', type=str, default=None)
+    parser.add_argument('--test_split', type=str, default=None)
     parser.add_argument('--data_files', type=str, default=None)
     parser.add_argument('--max_samples', type=str, default=None)
     parser.add_argument('--shuffle', action='store_true', default=False)
@@ -181,9 +185,12 @@ def main():
     parser.add_argument('--random_contiguous_removal', action='store_true', default=False)
 
     # Replace the masked tokens with special mask_id (removed by default):
-    parser.add_argument('--replace_mask', action='store_true', default=False)
+    parser.add_argument('--replace_mask', action='store_true', default=False, help="""
+                        Instead of cutting selected CoT tokens, replace them with a MASK token.
+                        """)
     parser.add_argument('--replace_mask_in_labels', action='store_true', default=False, help="""
                         Target labels on training will have masked COTs.
+                        Otherise, in case of replace_mask = True, labels will consist of all CoT
                         Works only together with --replace_mask""")
 
     # if we need to remove ## removed N ## hint - fine-tune on plain no-COT data
@@ -227,7 +234,6 @@ def main():
     parser.add_argument('--seed', type=int, default=1234)
     parser.add_argument('--max_grad_norm', type=float, default=1.0)
 
-    parser.add_argument('--bf16', action='store_true', default=False)
     parser.add_argument('--flash_attention_2', action='store_true', default=False)
     # pip install flash-attn --no-build-isolation
 
@@ -250,14 +256,10 @@ def main():
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    dtype = 'bfloat16' if args.bf16 else 'float32'
-    ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    print(ptdtype, dtype, device)
 
     # Create Model
-    config, model, tokenizer = create_model(args, ptdtype, device)
+    config, model, tokenizer = create_model(args, device)
     if args.removal_type == "random-chunks":
         model, tokenizer, new_token_ids = add_new_tokens(model, tokenizer, args.num_new_tokens + 1)
         start_id, new_token_ids = new_token_ids[0], new_token_ids[1:]
@@ -266,7 +268,7 @@ def main():
 
     if args.train_type == "jepa-cot-distill":
         ref_model = model
-        _, model, __ = create_jepa_model(config, ref_model, args, ptdtype, device)
+        _, model, __ = create_jepa_model(config, ref_model, args, device)
 
     # Load Data
     train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)
@@ -276,7 +278,6 @@ def main():
     use_fused = 'fused' in inspect.signature(torch.optim.AdamW).parameters
     extra_args = dict(fused=True) if use_fused else dict()
     optimizer = torch.optim.AdamW(trainable_params, lr=args.lr, **extra_args)
-
 
     # Train
     if args.train_type == "full-cot":

@@ -28,8 +28,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.random_contiguous_removal = args.random_contiguous_removal
 
         self.removal_p = self.masks_removal_schedule[self.schedule_index][1]
+        self.no_cot_stage = self.args.no_cot_stage
 
-        if self.args.replace_mask:
+        if self.no_cot_stage or (self.args.replace_mask and not (self.left_to_right_removal or self.random_contiguous_removal)):
             self.val_removal_ps = [0.0, 1.0]
         else:
             self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 1.0]
@@ -47,7 +48,6 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         # For generative eval in case of left_to_right_removal & joint_masked_distribution
         self.n_tokens_removed = None
-        self.no_cot_stage = getattr(args, "no_cot_stage", False)
 
         # For random masking 
         self.mask_id = torch.tensor(self.tokenizer.encode("Mask"))
@@ -74,13 +74,14 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         if self.args.from_pretrained_fullcot_checkpoint:
             step = self._resume_checkpoint(self.args.from_pretrained_fullcot_checkpoint, load_optimizer_state=False)
 
-        if self.writer:
+        if self.accelerator.is_main_process and self.writer:
             self.writer.set_step(step, mode="train")
 
+        all_cot_removed_in_batch = False
         loss_log = []
         for epoch in range(self.start_epoch, self.start_epoch + self.args.epochs):
             self.epoch = epoch
-            if self.writer:
+            if self.accelerator.is_main_process and self.writer:
                 self.writer.set_step(step, mode="train")
                 self.writer.add_scalar("epoch", epoch)
             self.model.train()
@@ -96,12 +97,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
             print_line = f"Epoch {epoch}; Step {step}"
             if not self.joint_masked_distribution:
-                print_line += f"; Scheduled to remove: {self.removal_p}% of COT"
+                print_line += f"; Scheduled to remove: {self.removal_p * 100}% of COT"
             print(print_line)
 
             for batch in tqdm.tqdm(self.train_dataloader):
                 batch, all_cot_removed_in_batch = self.process_input_truncation(batch)
-                self.move_batch_to_device(batch, self.device)
+                # self.move_batch_to_device(batch, self.device) <-- handled by accelerator
 
                 # if not all_cot_removed_in_batch:
                 #     best_val_accuracy = float('-inf')
@@ -109,18 +110,18 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                     print ('skipped')
                     continue
             
-                with self.ctx:                    
-                    outputs = self.model.compute_loss(**batch)
+                with self.accelerator.accumulate(self.model):
+                    with self.accelerator.autocast():
+                        outputs = self.model.compute_loss(**batch)
 
-                loss = outputs.loss
-                loss_log[-1].append(loss.item())
-                loss.div(self.args.accumulate).backward()
-                grad_norm = self.get_grad_norm()
+                    loss = outputs.loss
+                    loss_log[-1].append(loss.item())
+                    self.accelerator.backward(loss.div(self.args.accumulate))
+                    grad_norm = self.get_grad_norm()
 
-                if self.jepa_training:
-                    self.model.update_ref_model()
+                    if self.jepa_training:
+                        self.model.update_ref_model()
 
-                if step % self.args.accumulate == 0:
                     torch.nn.utils.clip_grad_norm_(self.get_trainable_params(), self.args.max_grad_norm)
                     self.optimizer.step()
                     self.optimizer.zero_grad(set_to_none=True)
@@ -136,7 +137,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                         self.metrics_tracker.update("CE_loss", outputs.ce_loss.item())
                         self.metrics_tracker.update("JEPA_loss", outputs.logits_loss.item())
                 
-                if step % 100 == 0:
+                if self.accelerator.is_main_process and step % 100 == 0:
                     token_accuracy = outputs.token_accuracy.item()
                     ppl = loss.exp().item()
                     print (f"Step: {step}. PPL: {ppl}. Token Accuracy: {token_accuracy}")
@@ -157,7 +158,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
     def evaluate(self, step):
         for val_removal_p in self.val_removal_ps:
             name = f"val_{val_removal_p}" if val_removal_p != 1.0 else "val"
-            if self.writer:
+                        
+            if self.accelerator.is_main_process and self.writer:
                 self.writer.set_step(step, mode=name)
             
             if val_removal_p == 1.0 and self.args.replace_mask:
@@ -174,8 +176,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             )
         
     def process_input_truncation(self, batch, val_removal_p=None):
-        input_ids = batch['input_ids'].to(self.device)
-        labels = batch['labels'].to(self.device)
+        input_ids = batch['input_ids']
+        labels = batch['labels']
 
         if val_removal_p is not None:
             if self.left_to_right_removal or self.random_contiguous_removal:

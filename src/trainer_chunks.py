@@ -48,13 +48,14 @@ class ChunkRemovalTrainer(BaseTrainer):
 
         batch_size = self.args.batch_size
         step = self.start_epoch * ((len(self.train_dataloader) + batch_size - 1) // batch_size)
-        if self.writer: self.writer.set_step(step, mode="train")
+        if self.accelerator.is_main_process and self.writer:
+            self.writer.set_step(step, mode="train")
         # best_val_accuracy = float('-inf')
         loss_log = []
 
         for epoch in range(self.start_epoch, self.start_epoch + self.args.epochs):
             self.epoch = epoch
-            if self.writer:
+            if self.accelerator.is_main_process and self.writer:
                 self.writer.set_step(step, mode="train")
                 self.writer.add_scalar("epoch", epoch)
             self.model.train()
@@ -87,17 +88,17 @@ class ChunkRemovalTrainer(BaseTrainer):
                     print ('skipped')
                     continue
             
-                with self.ctx:
-                    if self.args.keep_position:
-                        position_ids = position_ids[:, :input_ids.shape[-1]]
-                    outputs = self.model.compute_loss(input_ids=input_ids, labels=labels, position_ids=position_ids)
+                with self.accelerator.accumulate(self.model):
+                    with self.accelerator.autocast():
+                        if self.args.keep_position:
+                            position_ids = position_ids[:, :input_ids.shape[-1]]
+                        outputs = self.model.compute_loss(input_ids=input_ids, labels=labels, position_ids=position_ids)
 
-                loss = outputs.loss
-                loss_log[-1].append(loss.item())
-                loss.div(self.args.accumulate).backward()
-                grad_norm = self.get_grad_norm()
+                    loss = outputs.loss
+                    loss_log[-1].append(loss.item())
+                    self.accelerator.backward(loss.div(self.args.accumulate))
+                    grad_norm = self.get_grad_norm()
 
-                if step % self.args.accumulate == 0:
                     torch.nn.utils.clip_grad_norm_(self.get_trainable_params(), self.args.max_grad_norm)
                     self.optimizer.step()
                     self.optimizer.zero_grad(set_to_none=True)
@@ -109,7 +110,7 @@ class ChunkRemovalTrainer(BaseTrainer):
                     self.metrics_tracker.update("grad_norm", grad_norm)
                     self.metrics_tracker.update("n_chunks_to_remove", self.n_chunks_to_remove)
                 
-                if step % 100 == 0:
+                if self.accelerator.is_main_process and step % 100 == 0:
                     token_accuracy = outputs.token_accuracy.item()
                     ppl = loss.exp().item()
                     print (f"Step: {step}. PPL: {ppl}. Token Accuracy: {token_accuracy}")
@@ -122,7 +123,10 @@ class ChunkRemovalTrainer(BaseTrainer):
                 step += 1
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
-            if self.writer: self.writer.set_step(step, mode="val")
+                        
+            if self.accelerator.is_main_process and self.writer:
+                self.writer.set_step(step, mode="val")
+
             accuracy, token_accuracy, ppl = self.evaluate(
                 self.val_dataloader,
                 "val",
@@ -141,9 +145,9 @@ class ChunkRemovalTrainer(BaseTrainer):
             self.save_epoch(epoch)
 
     def process_input_truncation(self, batch, mask_new_tokens_in_labels=False):
-        input_ids = batch['input_ids'].to(self.device)
-        labels = batch['labels'].to(self.device)
-        chunk_input_ids = batch['chunk_input_ids'].to(self.device)
+        input_ids = batch['input_ids']
+        labels = batch['labels']
+        chunk_input_ids = batch['chunk_input_ids']
         chunk_positions = batch['chunk_positions']
 
         if self.n_chunks_to_remove == 0:

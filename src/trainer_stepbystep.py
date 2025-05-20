@@ -53,7 +53,8 @@ class StepByStepTrainer(BaseTrainer):
 
         batch_size = self.args.batch_size
         step = self.start_epoch * ((len(self.train_dataloader) + batch_size - 1) // batch_size)
-        if self.writer: self.writer.set_step(step, mode="train")
+        if self.accelerator.is_main_process and self.writer:
+            self.writer.set_step(step, mode="train")
 
 
         # best_val_accuracy = float('-inf')
@@ -61,7 +62,7 @@ class StepByStepTrainer(BaseTrainer):
 
         for epoch in range(self.start_epoch, self.start_epoch + self.args.epochs):
             self.epoch = epoch
-            if self.writer:
+            if self.accelerator.is_main_process and self.writer:
                 self.writer.set_step(step, mode="train")
                 self.writer.add_scalar("epoch", epoch)
                 
@@ -102,16 +103,16 @@ class StepByStepTrainer(BaseTrainer):
                     print ('skipped')
                     continue
             
-                with self.ctx:
-                    if self.args.keep_position:
-                        position_ids = position_ids[:, :input_ids.shape[-1]]
-                    outputs = self.model.compute_loss(input_ids=input_ids, labels=labels, position_ids=position_ids)
+                with self.accelerator.accumulate(self.model):
+                    with self.accelerator.autocast():
+                        if self.args.keep_position:
+                            position_ids = position_ids[:, :input_ids.shape[-1]]
+                        outputs = self.model.compute_loss(input_ids=input_ids, labels=labels, position_ids=position_ids)
 
-                loss = outputs.loss
-                loss.div(self.args.accumulate).backward()
-                grad_norm = self.get_grad_norm()
+                    loss = outputs.loss
+                    self.accelerator.backward(loss.div(self.args.accumulate))
+                    grad_norm = self.get_grad_norm()
 
-                if step % self.args.accumulate == 0:
                     torch.nn.utils.clip_grad_norm_(self.get_trainable_params(), self.args.max_grad_norm)
                     self.optimizer.step()
                     self.optimizer.zero_grad(set_to_none=True)
@@ -123,7 +124,7 @@ class StepByStepTrainer(BaseTrainer):
                     self.metrics_tracker.update("grad_norm", grad_norm)
                     self.metrics_tracker.update("scheduled_to_remove", self.scheduled_to_remove)
 
-                if step % 100 == 0:
+                if self.accelerator.is_main_process and step % 100 == 0:
                     token_accuracy = outputs.token_accuracy.item()
                     ppl = loss.exp().item()
                     print (f"Step: {step}. PPL: {ppl}. Token Accuracy: {token_accuracy}")
@@ -135,8 +136,9 @@ class StepByStepTrainer(BaseTrainer):
 
                 step += 1
             
-            if self.writer:
+            if self.accelerator.is_main_process and self.writer:
                 self.writer.set_step(step, mode="val")
+            
             accuracy, token_accuracy, ppl = self.evaluate(
                 self.val_dataloader,
                 "val",
@@ -157,8 +159,8 @@ class StepByStepTrainer(BaseTrainer):
 
 
     def process_input_truncation(self, batch, epoch, disable_random_removal_offset=False):
-        input_ids = batch['input_ids'].to(self.device)
-        labels = batch['labels'].to(self.device)
+        input_ids = batch['input_ids']
+        labels = batch['labels']
 
         if not (self.scheduled_to_remove > 0 or self.args.removal_smoothing_lambda != float('inf')):
             return input_ids, labels, None, False # all_cot_removed_in_batch

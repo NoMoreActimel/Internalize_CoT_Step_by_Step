@@ -2,6 +2,7 @@ import math
 import tqdm
 import torch
 
+from accelerate import Accelerator
 from utils import get_sep_position, extract_answer
 from writer import WanDBWriter, MetricTracker
 
@@ -9,6 +10,14 @@ class BaseTrainer:
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args):
         self.args = args
         self.config = vars(args)
+
+
+        self.accelerator = Accelerator(gradient_accumulation_steps=self.args.accumulate)
+        model, optimizer, train_dataloader, val_dataloader, test_dataloader = self.accelerator.prepare(
+            model, optimizer, train_dataloader, val_dataloader, test_dataloader,
+        )
+        self.device = self.accelerator.device
+        self.use_fused = use_fused
 
         self.model = model
         self.optimizer = optimizer
@@ -25,10 +34,6 @@ class BaseTrainer:
         self.writer = None
         self.metrics_tracker = None
 
-        self.device = device
-        self.ptdtype = torch.bfloat16 if args.bf16 else torch.float32
-        self.ctx = torch.amp.autocast(device_type='cuda', dtype=self.ptdtype)
-        self.use_fused = use_fused
 
     def setup_metrics(self, additional_metrics=None):
         if self.args.wandb_project:
@@ -76,7 +81,8 @@ class BaseTrainer:
         except KeyboardInterrupt as e:
             print("Saving model on keyboard interrupt")
             self._save_checkpoint(self.epoch, save_best=False)
-            if self.writer: self.writer.log_tables()
+            if self.accelerator.is_main_process and self.writer:
+                self.writer.log_tables()
             raise e
     
     def _train_process(self):
@@ -93,7 +99,6 @@ class BaseTrainer:
         self.model.eval()
         self.metrics_tracker.reset()
 
-        total_instances = 0
         total_tokens = 0
         total_correct = 0
         total_correct_tokens = 0
@@ -102,9 +107,9 @@ class BaseTrainer:
 
         for batch_idx, batch in tqdm.tqdm(enumerate(dataloader)):
             batch, _ = self.process_input_truncation(batch, **truncation_kwargs)
-            self.move_batch_to_device(batch, self.device)
+            # self.move_batch_to_device(batch, self.device) <-- handled by accelerator
 
-            with self.ctx:
+            with self.accelerator.autocast():
                 if self.args.keep_position:
                     batch["position_ids"] = batch["position_ids"][:, :batch["input_ids"].shape[-1]]
                 outputs = self.model.compute_loss(**batch)
@@ -112,7 +117,6 @@ class BaseTrainer:
             total_loss += outputs.total_loss.item()
             total_correct_tokens += outputs.total_correct.item()
             total_tokens += outputs.total_tokens
-            total_instances += batch["input_ids"].shape[0]
 
             # Generate + Evaluate
             # input_ids_all are cut to the start of COTs inside the model.generate
@@ -121,11 +125,12 @@ class BaseTrainer:
                     generation_kwargs["position_ids_shift"] = getattr(self, "n_tokens_removed", None)
                 
                 first_sep_positions = get_sep_position(batch["input_ids"], self.tokenizer.eos_token_id)
-                beam_outputs = self.model.generate(
-                    input_ids=batch["input_ids"],
-                    position_ids=batch["position_ids"],
-                    **generation_kwargs
-                )
+                with self.accelerator.autocast():
+                    beam_outputs = self.model.generate(
+                        input_ids=batch["input_ids"],
+                        position_ids=batch["position_ids"],
+                        **generation_kwargs
+                    )
 
                 total_generated += batch["input_ids"].shape[0]
 
@@ -145,13 +150,20 @@ class BaseTrainer:
                         print (f'Target: {tgt_text}')
                         print (f'Predicted: {pred_text}')
                         print ('')
-                
+        
+        reduce_func = lambda x: self.accelerator.reduce(torch.tensor(x, device=self.device), reduction="sum").item()
+        total_loss = reduce_func(total_loss)
+        total_correct_tokens = reduce_func(total_correct_tokens)
+        total_tokens = reduce_func(total_tokens)
+        total_generated = reduce_func(total_generated)
+        total_correct = reduce_func(total_correct)
+
         accuracy = total_correct / total_generated
         token_accuracy = total_correct_tokens / total_tokens
         loss = total_loss / total_tokens
         ppl = math.exp(loss)
 
-        if self.metrics_tracker:
+        if self.accelerator.is_main_process and self.metrics_tracker:
             self.metrics_tracker.update("loss", loss)
             self.metrics_tracker.update("perplexity", ppl)
             self.metrics_tracker.update("accuracy", accuracy)
@@ -160,7 +172,7 @@ class BaseTrainer:
             if self.jepa_training:
                 self.metrics_tracker.update("CE_loss", outputs.ce_loss.item())
                 self.metrics_tracker.update("JEPA_loss", outputs.logits_loss.item())
-                
+            
             self.log_scalars(self.metrics_tracker)
             self.metrics_tracker.reset()
 
@@ -173,17 +185,23 @@ class BaseTrainer:
             self._save_checkpoint(epoch, save_best=True, only_best=False)
 
     def _save_checkpoint(self, epoch, save_best=False, only_best=False):
+        if not self.accelerator.is_main_process:
+            return
+
         arch = type(self.model).__name__
+
+        unwrapped_model = self.accelerator.unwrap_model(self.model)
+
         state = {
             "arch": arch,
             "epoch": epoch,
-            "state_dict": self.model.state_dict(),
+            "state_dict": unwrapped_model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "config": self.config,
         }
 
         if hasattr(self.model, "ref_model"):
-            state["ref_state_dict"] = self.model.ref_model.state_dict()
+            state["ref_state_dict"] = unwrapped_model.ref_model.state_dict()
 
         filename = str(self.args.save_model + "/checkpoint-epoch{}.pth".format(epoch))
 
@@ -199,7 +217,12 @@ class BaseTrainer:
     def _resume_checkpoint(self, resume_path, load_optimizer_state=True):
         resume_path = str(resume_path)
         print("Loading checkpoint: {} ...".format(resume_path))
-        checkpoint = torch.load(resume_path, self.device)
+
+        with self.accelerator.main_process_first():
+            checkpoint = torch.load(resume_path, map_location=self.device)
+        
+        unwrapped_model = self.accelerator.unwrap_model(self.model)
+
         self.start_epoch = checkpoint["epoch"] + 1
         step = self.start_epoch * ((len(self.train_dataloader) + self.args.batch_size - 1) // self.args.batch_size)
 
@@ -211,33 +234,35 @@ class BaseTrainer:
             )
         
         if not getattr(self, "jepa_training", False):
-            self.model.load_state_dict(checkpoint["state_dict"])
+            unwrapped_model.load_state_dict(checkpoint["state_dict"])
         else:
-            self.model.load_state_dict(checkpoint["state_dict"], strict=False)
+            unwrapped_model.load_state_dict(checkpoint["state_dict"], strict=False)
             if "ref_state_dict" in checkpoint:
-                self.model.ref_model.load_state_dict(checkpoint["ref_state_dict"])
+                unwrapped_model.ref_model.load_state_dict(checkpoint["ref_state_dict"])
                 print("Loaded ref_model from the previous ref_state_dict!")
             else:
-                self.model.ref_model.load_state_dict(checkpoint["state_dict"])
+                unwrapped_model.ref_model.load_state_dict(checkpoint["state_dict"])
                 print("Loaded ref_model from the default model's state_dict!")
-            self.model.ref_model.eval()
+            unwrapped_model.ref_model.eval()
         
-        if not load_optimizer_state:
-            print("Only Model weights were loaded, Optimizer state was not. Resume training from epoch {}".format(self.start_epoch))
-            return
-
-        # load optimizer state from checkpoint only when optimizer type is not changed.
-        if checkpoint["config"].get("optimizer", "") != self.config.get("optimizer", ""):
-            # checkpoint["config"]["lr_scheduler"] != self.config["lr_scheduler"]
-            print(
-                "Warning: Optimizer given in config file is different "
-                "from that of checkpoint. Optimizer parameters not being resumed."
-            )
+        if load_optimizer_state:
+            # load optimizer state from checkpoint only when optimizer type is not changed.
+            if checkpoint["config"].get("optimizer", "") != self.config.get("optimizer", ""):
+                # checkpoint["config"]["lr_scheduler"] != self.config["lr_scheduler"]
+                print(
+                    "Warning: Optimizer given in config file is different "
+                    "from that of checkpoint. Optimizer parameters not being resumed."
+                )
+            else:
+                self.optimizer.load_state_dict(checkpoint["optimizer"])
+                # self.lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
         else:
-            self.optimizer.load_state_dict(checkpoint["optimizer"])
-            # self.lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+            print("Only Model weights were loaded, Optimizer state was not. Resume training from epoch {}".format(self.start_epoch))
 
-        print("Checkpoint loaded. Resume training from epoch {}".format(self.start_epoch))
+        if self.accelerator.is_main_process:
+            print(f"Loaded checkpoint '{resume_path}'. Resume training from epoch {self.start_epoch}")
+
+        self.accelerator.wait_for_everyone()
         return step
 
     def log_scalars(self, metric_tracker: MetricTracker):
