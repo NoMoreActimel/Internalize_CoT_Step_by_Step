@@ -34,7 +34,6 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             self.val_removal_ps = [0.0, 1.0]
         else:
             self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 0.9, 1.0]
-        
 
         self.val_truncation_kwargs = {
             "eval_flag": self.joint_masked_distribution
@@ -119,6 +118,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             for batch in tqdm.tqdm(self.train_dataloader):
                 batch, all_cot_removed_in_batch = self.process_input_truncation(batch)
                 # self.move_batch_to_device(batch, self.device) <-- handled by accelerator
+
+                # print(batch["input_ids"].shape, batch["input_ids"][0])
+                # print(self.tokenizer.batch_decode(batch["input_ids"], skip_special_tokens=False)[0])
 
                 # if not all_cot_removed_in_batch:
                 #     best_val_accuracy = float('-inf')
