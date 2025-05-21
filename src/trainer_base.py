@@ -91,7 +91,16 @@ class BaseTrainer:
         return self._evaluate(*args, **kwargs)
 
     @torch.no_grad()
-    def _evaluate(self, dataloader, name, truncation_kwargs, generation_kwargs, perform_generative_eval=True):
+    def _evaluate(
+            self,
+            dataloader,
+            name,
+            truncation_kwargs,
+            generation_kwargs,
+            perform_generative_eval=True,
+            gen_eval_insert_const_ids=False,
+            insert_const_ids_func=None
+    ):
         self.model.eval()
         self.metrics_tracker.reset()
 
@@ -101,8 +110,8 @@ class BaseTrainer:
         total_loss = 0
         total_generated = 0
 
-        for batch_idx, batch in tqdm.tqdm(enumerate(dataloader)):
-            batch, _ = self.process_input_truncation(batch, **truncation_kwargs)
+        for batch_idx, batch_initial in tqdm.tqdm(enumerate(dataloader)):
+            batch, _ = self.process_input_truncation(batch_initial, **truncation_kwargs)
             # self.move_batch_to_device(batch, self.device) <-- handled by accelerator
 
             with self.accelerator.autocast():
@@ -114,38 +123,58 @@ class BaseTrainer:
             total_correct_tokens += outputs.total_correct.item()
             total_tokens += outputs.total_tokens
 
-            # Generate + Evaluate
-            # input_ids_all are cut to the start of COTs inside the model.generate
-            if perform_generative_eval and batch_idx < getattr(self.args, "n_generative_eval_batches", 1):
-                if generation_kwargs.get("position_ids_shift", None) is not None:
-                    generation_kwargs["position_ids_shift"] = getattr(self, "n_tokens_removed", None)
-                
-                first_sep_positions = get_sep_position(batch["input_ids"], self.tokenizer.eos_token_id)
-                with self.accelerator.autocast():
-                    beam_outputs = self.model.generate(
-                        input_ids=batch["input_ids"],
-                        position_ids=batch["position_ids"],
-                        **generation_kwargs
-                    )
-
-                total_generated += batch["input_ids"].shape[0]
-
-                for i, (input_ids_all_i, beam_output_i) in enumerate(zip(batch["input_ids"], beam_outputs)):
-                    tgt = input_ids_all_i[first_sep_positions[i] + 1:]
-                    tgt_text = self.tokenizer.decode(tgt, skip_special_tokens=True)
-                    ans = extract_answer(tgt_text)
-
-                    pred_text = self.tokenizer.decode(beam_output_i[0][first_sep_positions[i] + 1:], skip_special_tokens=True)
-                    pred_ans = extract_answer(pred_text)
-                    if ans == pred_ans:
-                        total_correct += 1
+        # separate gen eval for batch_size = 1 in case of mask insertion
+        for batch_idx, batch_initial in tqdm.tqdm(enumerate(dataloader)):
+            batch, _ = self.process_input_truncation(batch_initial, **truncation_kwargs)
+            with self.accelerator.autocast():
+                if self.args.keep_position:
+                    batch["position_ids"] = batch["position_ids"][:, :batch["input_ids"].shape[-1]]
+            
+            if gen_eval_insert_const_ids and batch["input_ids"].shape[0] != 1:
+                # all batch values should have batch_size = 1 to support non-equal CoT sizes
+                batches = [{k: v[i].unsqueeze(0) for k, v in batch} for i in range(batch["input_ids"].shape[0])]
+            else:
+                batches = [batch]
+        
+            for batch in batches:
+                # Generate + Evaluate
+                # input_ids_all are cut to the start of COTs inside the model.generate
+                if perform_generative_eval and batch_idx < getattr(self.args, "n_generative_eval_batches", 1):
+                    # Regenerate with no trunc
+                    if generation_kwargs.get("insert_const_ids_in_cot", False):
+                        ids_to_insert, insert_position = insert_const_ids_func(batch, **truncation_kwargs)
+                        generation_kwargs["ids_to_insert"] = ids_to_insert
+                        generation_kwargs["insert_position"] = insert_position
+                            
+                    if generation_kwargs.get("position_ids_shift", None) is not None:
+                        generation_kwargs["position_ids_shift"] = getattr(self, "n_tokens_removed", None)
                     
-                    query = self.tokenizer.decode(input_ids_all_i[:first_sep_positions[i]], skip_special_tokens=True)
-                    if i <= 3:
-                        print (f'Input: {query}')
-                        print (f'Target: {tgt_text}')
-                        print (f'Predicted: {pred_text}')
-                        print ('')
+                    first_sep_positions = get_sep_position(batch["input_ids"], self.tokenizer.eos_token_id)
+                    with self.accelerator.autocast():
+                        beam_outputs = self.model.generate(
+                            input_ids=batch["input_ids"],
+                            position_ids=batch["position_ids"],
+                            **generation_kwargs
+                        )
+
+                    total_generated += batch["input_ids"].shape[0]
+
+                    for i, (input_ids_all_i, beam_output_i) in enumerate(zip(batch["input_ids"], beam_outputs)):
+                        tgt = input_ids_all_i[first_sep_positions[i] + 1:]
+                        tgt_text = self.tokenizer.decode(tgt, skip_special_tokens=True)
+                        ans = extract_answer(tgt_text)
+
+                        pred_text = self.tokenizer.decode(beam_output_i[0][first_sep_positions[i] + 1:], skip_special_tokens=True)
+                        pred_ans = extract_answer(pred_text)
+                        if ans == pred_ans:
+                            total_correct += 1
+                        
+                        query = self.tokenizer.decode(input_ids_all_i[:first_sep_positions[i]], skip_special_tokens=True)
+                        if i <= 3:
+                            print (f'Input: {query}')
+                            print (f'Target: {tgt_text}')
+                            print (f'Predicted: {pred_text}')
+                            print ('')
         
         reduce_func = lambda x: self.accelerator.reduce(torch.tensor(x, device=self.device), reduction="sum").item()
         total_loss = reduce_func(total_loss)

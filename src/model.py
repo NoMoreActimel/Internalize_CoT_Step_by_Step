@@ -67,7 +67,10 @@ class ImplicitModel(nn.Module):
             new_tokens_start_id=None,
             inputs_with_cot=True,
             use_inputs_cot=False,
-            position_ids_shift=None
+            position_ids_shift=None,
+            insert_const_ids_in_cot=False,
+            insert_position=0,
+            ids_to_insert=None
     ):
         sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=1 if use_inputs_cot else 0)
         batch_size = input_ids.shape[0]
@@ -83,6 +86,10 @@ class ImplicitModel(nn.Module):
         else:
             logits_processor = None
             stopping_criteria = None
+        
+        if insert_const_ids_in_cot:
+            assert position_ids is None, "Const ids insertion does not support position ids!"
+            assert use_new_tokens is False, "Const ids insertion does not support new tokens!"
 
         if sep_positions.eq(sep_positions[0]).all():
             if inputs_with_cot:
@@ -93,7 +100,7 @@ class ImplicitModel(nn.Module):
             beam_output = self._generate(
                 input_ids, position_ids, generation_config, max_new_tokens, num_beams,
                 logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
-                position_ids_shift
+                position_ids_shift, insert_const_ids_in_cot, insert_position, ids_to_insert
             )
             if isinstance(beam_output, torch.Tensor):
                 beam_output = beam_output.unsqueeze(1)
@@ -110,7 +117,7 @@ class ImplicitModel(nn.Module):
                 beam_output_i = self._generate(
                     input_ids_i, position_ids_i, generation_config, max_new_tokens, num_beams,
                     logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
-                    position_ids_shift
+                    position_ids_shift, insert_const_ids_in_cot, insert_position, ids_to_insert
                 )
                 beam_output.append(beam_output_i)
         return beam_output
@@ -126,7 +133,10 @@ class ImplicitModel(nn.Module):
             stopping_criteria,
             use_new_tokens=False,
             new_tokens_start_id=None,
-            position_ids_shift=None
+            position_ids_shift=None,
+            insert_const_ids_in_cot=False,
+            insert_position=0,
+            ids_to_insert=None
     ):
         if use_new_tokens:
             return self._generate_with_new_tokens(
@@ -161,16 +171,37 @@ class ImplicitModel(nn.Module):
                     stopping_criteria=stopping_criteria,
                 )
         else:
+            first_generation = insert_position
+            second_generation = max_new_tokens - insert_position
+            if insert_const_ids_in_cot and insert_position > 0:
+                beam_output = self.base_model.generate(
+                    input_ids=input_ids,
+                    generation_config=generation_config,
+                    max_new_tokens=first_generation,
+                    num_beams=num_beams,
+                    early_stopping=True,
+                    num_return_sequences=1,
+                    logits_processor=logits_processor,
+                    stopping_criteria=stopping_criteria,
+                )
+            
+            if insert_const_ids_in_cot and insert_position > 0:
+                beam_output = self.insert_const_ids(beam_output, ids_to_insert)
+                logits_processor, stopping_criteria = self.reinit_processor_criteria(
+                    logits_processor, stopping_criteria
+                )
+
             beam_output = self.base_model.generate(
                 input_ids=input_ids,
                 generation_config=generation_config,
-                max_new_tokens=max_new_tokens,
+                max_new_tokens=second_generation,
                 num_beams=num_beams,
                 early_stopping=True,
                 num_return_sequences=1,
                 logits_processor=logits_processor,
                 stopping_criteria=stopping_criteria,
             )
+            
         return beam_output
 
     def _generate_with_shifted_position_ids(
@@ -330,6 +361,39 @@ class ImplicitModel(nn.Module):
             texts_generated.append(self.tokenizer.decode(input_ids_i, skip_special_tokens=True))
         
         return texts_generated
+
+    def insert_const_ids(self, output_ids, ids_to_insert):
+        eos_token_id = self.tokenizer.eos_token_id
+        eos_count = (output_ids == eos_token_id).sum(dim=-1)
+        done_cot = (eos_count - self.eos_count_init) >= 1
+
+        ids_to_insert = ids_to_insert.detach().clone()
+        if ids_to_insert.ndim == 1:
+            ids_to_insert = ids_to_insert.unsqueeze(0)
+        if ids_to_insert.shape[0] != output_ids.shape[0]:
+            N = output_ids.shape[0] // ids_to_insert.shape[0]
+            ids_to_insert = ids_to_insert.expand(N, ids_to_insert.shape[1:])
+        
+        ids_to_insert[done_cot, :] = eos_token_id
+        output_ids = torch.cat([output_ids, ids_to_insert], dim=1)
+        return output_ids
+
+    def reinit_processor_criteria(self, logits_processor, stopping_criteria):
+        if logits_processor is None:
+            return None, None
+        
+        eos_count_init = logits_processor.eos_count_init
+        logits_processor = DoubleEOSLogitsProcessor(self.tokenizer.eos_token_id)
+        logits_processor.init = True
+        logits_processor.eos_count_init = eos_count_init
+
+        stopping_criteria = DoubleEOSStoppingCriteria(self.tokenizer.eos_token_id)
+        stopping_criteria.init = True
+        stopping_criteria.eos_count_init = eos_count_init
+
+        logits_processor = LogitsProcessorList([logits_processor])
+        stopping_criteria = StoppingCriteriaList([stopping_criteria])
+        return logits_processor, stopping_criteria
         
     @classmethod
     def from_pretrained(self, pretrained_path, use_flash_attention=False):

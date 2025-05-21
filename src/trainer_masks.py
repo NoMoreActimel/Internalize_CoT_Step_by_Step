@@ -46,6 +46,13 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             "position_ids_shift": self.args.keep_position and self.joint_masked_distribution and self.left_to_right_removal
         }
 
+        if (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask:
+            self.gen_eval_insert_const_ids = True
+            self.insert_const_ids_func = self.sample_random_contiguous_mask
+        else:
+            self.gen_eval_insert_const_ids = False
+            self.insert_const_ids_func = None
+
         # For generative eval in case of left_to_right_removal & joint_masked_distribution
         self.n_tokens_removed = None
 
@@ -172,8 +179,28 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 name=name,
                 truncation_kwargs={"val_removal_p": val_removal_p},
                 generation_kwargs=self.val_generation_kwargs,
-                perform_generative_eval=True
+                perform_generative_eval=True,
+                gen_eval_insert_masks=self.gen_eval_insert_const_ids,
+                insert_const_ids_func=self.insert_const_ids_func
             )
+
+    def sample_random_contiguous_mask(self, batch, val_removal_p):
+        assert (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask
+
+        input_ids = batch["input_ids"]
+        first_sep_positions, second_sep_positions, eos_positions = self._get_sep_positions(self, input_ids)
+
+        assert self.same_elements(first_sep_positions) \
+            and self.same_elements(second_sep_positions) \
+            and self.same_elements(eos_positions)
+    
+        length = second_sep_positions[0] - first_sep_positions[0] - 1
+        n_tokens_to_remove = int(np.round(val_removal_p * length.item()))
+
+        insert_position = 0 if self.left_to_right_removal else random.choice(torch.arange(0, length - n_tokens_to_remove + 1))
+        ids_to_insert = torch.full((input_ids.shape[0], n_tokens_to_remove), self.mask_id)
+
+        return ids_to_insert, insert_position
         
     def process_input_truncation(self, batch, val_removal_p=None):
         input_ids = batch['input_ids']
