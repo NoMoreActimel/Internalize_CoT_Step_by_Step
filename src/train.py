@@ -121,7 +121,7 @@ def parse_tuple_list(arg):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='gpt2')
-    parser.add_argument('--modified_n_head', type=int, default=None)
+    parser.add_argument('--n_head', type=int, default=None)
 
     parser.add_argument('--train_path', type=str, required=False)
     parser.add_argument('--val_path', type=str, required=False)

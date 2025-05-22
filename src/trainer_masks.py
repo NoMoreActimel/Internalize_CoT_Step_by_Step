@@ -33,7 +33,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         if self.no_cot_stage or (self.args.replace_mask and not (self.left_to_right_removal or self.random_contiguous_removal)):
             self.val_removal_ps = [0.0, 1.0]
         else:
-            self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 1.0]
+            self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 0.9, 1.0]
         
 
         self.val_truncation_kwargs = {
@@ -43,14 +43,19 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             "max_new_tokens": self.args.max_new_tokens,
             "stop_on_two_eos": True,
             "use_inputs_cot": False,
-            "position_ids_shift": self.args.keep_position and self.joint_masked_distribution and self.left_to_right_removal
+            "position_ids_shift": self.args.keep_position and self.joint_masked_distribution and self.left_to_right_removal,
+            "insert_const_ids_in_cot": False
         }
 
+        self.generative_eval_hooks = []
+        if self.val_generation_kwargs["position_ids_shift"]:
+            self.generative_eval_hooks.append(self.generation_eval_position_ids_shift_hook)
+
         if (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask:
-            self.gen_eval_insert_const_ids = True
+            self.val_generation_kwargs["insert_const_ids_in_cot"] = True
             self.insert_const_ids_func = self.sample_random_contiguous_mask
+            self.generative_eval_hooks.append(self.generation_eval_insert_ids_hook)
         else:
-            self.gen_eval_insert_const_ids = False
             self.insert_const_ids_func = None
 
         # For generative eval in case of left_to_right_removal & joint_masked_distribution
@@ -180,15 +185,28 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 truncation_kwargs={"val_removal_p": val_removal_p},
                 generation_kwargs=self.val_generation_kwargs,
                 perform_generative_eval=True,
-                gen_eval_insert_masks=self.gen_eval_insert_const_ids,
-                insert_const_ids_func=self.insert_const_ids_func
+                generative_eval_hooks=self.generative_eval_hooks,
+                generative_eval_single_batch_size=self.val_generation_kwargs["insert_const_ids_in_cot"]
             )
+    
+    def generation_eval_insert_ids_hook(self, batch, truncation_kwargs, generation_kwargs):
+        # Regenerate with no trunc
+        if generation_kwargs.get("insert_const_ids_in_cot", False):
+            ids_to_insert, insert_position = self.insert_const_ids_func(batch, **truncation_kwargs)
+            generation_kwargs["ids_to_insert"] = ids_to_insert
+            generation_kwargs["insert_position"] = insert_position
+        return generation_kwargs
+    
+    def generation_eval_position_ids_shift_hook(self, generation_kwargs, *args, **kwargs):
+        if generation_kwargs.get("position_ids_shift", None) is not None:
+            generation_kwargs["position_ids_shift"] = getattr(self, "n_tokens_removed", None)
+        return generation_kwargs
 
     def sample_random_contiguous_mask(self, batch, val_removal_p):
         assert (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask
 
         input_ids = batch["input_ids"]
-        first_sep_positions, second_sep_positions, eos_positions = self._get_sep_positions(self, input_ids)
+        first_sep_positions, second_sep_positions, eos_positions = self._get_sep_positions(input_ids)
 
         assert self.same_elements(first_sep_positions) \
             and self.same_elements(second_sep_positions) \
@@ -198,7 +216,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         n_tokens_to_remove = int(np.round(val_removal_p * length.item()))
 
         insert_position = 0 if self.left_to_right_removal else random.choice(torch.arange(0, length - n_tokens_to_remove + 1))
-        ids_to_insert = torch.full((input_ids.shape[0], n_tokens_to_remove), self.mask_id)
+        ids_to_insert = torch.full((input_ids.shape[0], n_tokens_to_remove), self.mask_id).to(self.device)
 
         return ids_to_insert, insert_position
         

@@ -98,8 +98,8 @@ class BaseTrainer:
             truncation_kwargs,
             generation_kwargs,
             perform_generative_eval=True,
-            gen_eval_insert_const_ids=False,
-            insert_const_ids_func=None
+            generative_eval_hooks=[],
+            generative_eval_single_batch_size=False
     ):
         self.model.eval()
         self.metrics_tracker.reset()
@@ -130,9 +130,16 @@ class BaseTrainer:
                 if self.args.keep_position:
                     batch["position_ids"] = batch["position_ids"][:, :batch["input_ids"].shape[-1]]
             
-            if gen_eval_insert_const_ids and batch["input_ids"].shape[0] != 1:
+            if generative_eval_single_batch_size and batch["input_ids"].shape[0] != 1:
                 # all batch values should have batch_size = 1 to support non-equal CoT sizes
-                batches = [{k: v[i].unsqueeze(0) for k, v in batch} for i in range(batch["input_ids"].shape[0])]
+                batches = []
+                for i in range(batch["input_ids"].shape[0]):
+                    batch_i = {}
+                    for k, v in batch.items():
+                        batch_i[k] = v
+                        if isinstance(v, torch.Tensor):
+                            batch_i[k] = v[i].unsqueeze(0)
+                    batches.append(batch_i)
             else:
                 batches = [batch]
         
@@ -140,14 +147,12 @@ class BaseTrainer:
                 # Generate + Evaluate
                 # input_ids_all are cut to the start of COTs inside the model.generate
                 if perform_generative_eval and batch_idx < getattr(self.args, "n_generative_eval_batches", 1):
-                    # Regenerate with no trunc
-                    if generation_kwargs.get("insert_const_ids_in_cot", False):
-                        ids_to_insert, insert_position = insert_const_ids_func(batch, **truncation_kwargs)
-                        generation_kwargs["ids_to_insert"] = ids_to_insert
-                        generation_kwargs["insert_position"] = insert_position
-                            
-                    if generation_kwargs.get("position_ids_shift", None) is not None:
-                        generation_kwargs["position_ids_shift"] = getattr(self, "n_tokens_removed", None)
+                    for hook in generative_eval_hooks:
+                        generation_kwargs = hook(
+                            batch=batch,
+                            truncation_kwargs=truncation_kwargs,
+                            generation_kwargs=generation_kwargs
+                        )
                     
                     first_sep_positions = get_sep_position(batch["input_ids"], self.tokenizer.eos_token_id)
                     with self.accelerator.autocast():

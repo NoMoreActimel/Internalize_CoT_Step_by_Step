@@ -186,13 +186,15 @@ class ImplicitModel(nn.Module):
                 )
             
             if insert_const_ids_in_cot and insert_position > 0:
-                beam_output = self.insert_const_ids(beam_output, ids_to_insert)
+                beam_output = self.insert_const_ids(beam_output, ids_to_insert, logits_processor)
                 logits_processor, stopping_criteria = self.reinit_processor_criteria(
                     logits_processor, stopping_criteria
                 )
+            else:
+                beam_output = input_ids
 
             beam_output = self.base_model.generate(
-                input_ids=input_ids,
+                input_ids=beam_output,
                 generation_config=generation_config,
                 max_new_tokens=second_generation,
                 num_beams=num_beams,
@@ -362,10 +364,15 @@ class ImplicitModel(nn.Module):
         
         return texts_generated
 
-    def insert_const_ids(self, output_ids, ids_to_insert):
+    def insert_const_ids(self, output_ids, ids_to_insert, logits_processor):
+        if logits_processor is None:
+            eos_count_init = torch.zeros(output_ids.shape[:-1])
+        else:
+            eos_count_init = logits_processor[0].eos_count_init
+        
         eos_token_id = self.tokenizer.eos_token_id
         eos_count = (output_ids == eos_token_id).sum(dim=-1)
-        done_cot = (eos_count - self.eos_count_init) >= 1
+        done_cot = (eos_count - eos_count_init) >= 1
 
         ids_to_insert = ids_to_insert.detach().clone()
         if ids_to_insert.ndim == 1:
@@ -382,7 +389,7 @@ class ImplicitModel(nn.Module):
         if logits_processor is None:
             return None, None
         
-        eos_count_init = logits_processor.eos_count_init
+        eos_count_init = logits_processor[0].eos_count_init
         logits_processor = DoubleEOSLogitsProcessor(self.tokenizer.eos_token_id)
         logits_processor.init = True
         logits_processor.eos_count_init = eos_count_init
