@@ -30,7 +30,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.removal_p = self.masks_removal_schedule[self.schedule_index][1]
         self.no_cot_stage = self.args.no_cot_stage
 
-        if self.no_cot_stage or (self.args.replace_mask and not (self.left_to_right_removal or self.random_contiguous_removal)):
+        if self.no_cot_stage:
             self.val_removal_ps = [0.0, 1.0]
         else:
             self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 0.9, 1.0]
@@ -44,14 +44,15 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             "stop_on_two_eos": True,
             "use_inputs_cot": False,
             "position_ids_shift": self.args.keep_position and self.joint_masked_distribution and self.left_to_right_removal,
-            "insert_const_ids_in_cot": False
+            "insert_const_ids_in_cot": False,
+            "random_insertion_prob": None
         }
 
         self.generative_eval_hooks = []
         if self.val_generation_kwargs["position_ids_shift"]:
             self.generative_eval_hooks.append(self.generation_eval_position_ids_shift_hook)
 
-        if (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask:
+        if self.args.replace_mask:
             self.val_generation_kwargs["insert_const_ids_in_cot"] = True
             self.insert_const_ids_func = self.sample_random_contiguous_mask
             self.generative_eval_hooks.append(self.generation_eval_insert_ids_hook)
@@ -179,6 +180,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             else:
                 self.val_generation_kwargs["use_inputs_cot"] = False
 
+            if not (self.left_to_right_removal or self.random_contiguous_removal):
+                self.val_generation_kwargs["random_insertion_prob"] = val_removal_p
+
             self._evaluate(
                 dataloader=self.val_dataloader,
                 name=name,
@@ -203,8 +207,6 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         return generation_kwargs
 
     def sample_random_contiguous_mask(self, batch, val_removal_p):
-        assert (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask
-
         input_ids = batch["input_ids"]
         first_sep_positions, second_sep_positions, eos_positions = self._get_sep_positions(input_ids)
 

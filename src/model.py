@@ -1,4 +1,5 @@
 import os
+import random
 import torch
 import torch.nn as nn
 
@@ -70,6 +71,7 @@ class ImplicitModel(nn.Module):
             position_ids_shift=None,
             insert_const_ids_in_cot=False,
             insert_position=0,
+            random_insertion_prob=None,
             ids_to_insert=None
     ):
         sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=1 if use_inputs_cot else 0)
@@ -100,7 +102,7 @@ class ImplicitModel(nn.Module):
             beam_output = self._generate(
                 input_ids, position_ids, generation_config, max_new_tokens, num_beams,
                 logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
-                position_ids_shift, insert_const_ids_in_cot, insert_position, ids_to_insert
+                position_ids_shift, insert_const_ids_in_cot, insert_position, random_insertion_prob, ids_to_insert
             )
             if isinstance(beam_output, torch.Tensor):
                 beam_output = beam_output.unsqueeze(1)
@@ -117,7 +119,7 @@ class ImplicitModel(nn.Module):
                 beam_output_i = self._generate(
                     input_ids_i, position_ids_i, generation_config, max_new_tokens, num_beams,
                     logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
-                    position_ids_shift, insert_const_ids_in_cot, insert_position, ids_to_insert
+                    position_ids_shift, insert_const_ids_in_cot, insert_position, random_insertion_prob, ids_to_insert
                 )
                 beam_output.append(beam_output_i)
         return beam_output
@@ -136,6 +138,7 @@ class ImplicitModel(nn.Module):
             position_ids_shift=None,
             insert_const_ids_in_cot=False,
             insert_position=0,
+            random_insertion_prob=None,
             ids_to_insert=None
     ):
         if use_new_tokens:
@@ -151,61 +154,110 @@ class ImplicitModel(nn.Module):
             if position_ids_shift is not None:
                 # Used in case of left_to_right_removal.
                 # We need to shift position ids by the length of COT = position_ids_shift
-                beam_output = self._generate_with_shifted_position_ids(
+                return self._generate_with_shifted_position_ids(
                     input_ids,
                     position_ids,
                     max_new_tokens,
                     stopping_criteria,
                     position_ids_shift
                 )
-            else:
-                beam_output = self.base_model.generate(
-                    input_ids=input_ids,
-                    position_ids=position_ids,
-                    generation_config=generation_config,
-                    max_new_tokens=max_new_tokens,
-                    num_beams=num_beams,
-                    early_stopping=True,
-                    num_return_sequences=1,
-                    logits_processor=logits_processor,
-                    stopping_criteria=stopping_criteria,
-                )
-        else:
-            first_generation = insert_position
-            second_generation = max_new_tokens - insert_position
-            if insert_const_ids_in_cot and insert_position > 0:
-                beam_output = self.base_model.generate(
-                    input_ids=input_ids,
-                    generation_config=generation_config,
-                    max_new_tokens=first_generation,
-                    num_beams=num_beams,
-                    early_stopping=True,
-                    num_return_sequences=1,
-                    logits_processor=logits_processor,
-                    stopping_criteria=stopping_criteria,
-                )
-            
-            if insert_const_ids_in_cot and insert_position > 0:
-                beam_output = self.insert_const_ids(beam_output, ids_to_insert, logits_processor)
-                logits_processor, stopping_criteria = self.reinit_processor_criteria(
-                    logits_processor, stopping_criteria
-                )
-            else:
-                beam_output = input_ids
-
-            beam_output = self.base_model.generate(
-                input_ids=beam_output,
+            return self.base_model.generate(
+                input_ids=input_ids,
+                position_ids=position_ids,
                 generation_config=generation_config,
-                max_new_tokens=second_generation,
+                max_new_tokens=max_new_tokens,
                 num_beams=num_beams,
                 early_stopping=True,
                 num_return_sequences=1,
                 logits_processor=logits_processor,
                 stopping_criteria=stopping_criteria,
             )
-            
+        if random_insertion_prob is not None:
+            return self._generate_with_random_insertion(
+                input_ids,
+                max_new_tokens,
+                stopping_criteria,
+                random_insertion_prob
+            )
+        
+        first_generation = insert_position
+        second_generation = max_new_tokens - insert_position
+        if insert_const_ids_in_cot and insert_position > 0:
+            beam_output = self.base_model.generate(
+                input_ids=input_ids,
+                generation_config=generation_config,
+                max_new_tokens=first_generation,
+                num_beams=num_beams,
+                early_stopping=True,
+                num_return_sequences=1,
+                logits_processor=logits_processor,
+                stopping_criteria=stopping_criteria,
+            )
+        
+        if insert_const_ids_in_cot and insert_position > 0:
+            beam_output = self.insert_const_ids(beam_output, ids_to_insert, logits_processor)
+            logits_processor, stopping_criteria = self.reinit_processor_criteria(
+                logits_processor, stopping_criteria
+            )
+        else:
+            beam_output = input_ids
+
+        beam_output = self.base_model.generate(
+            input_ids=beam_output,
+            generation_config=generation_config,
+            max_new_tokens=second_generation,
+            num_beams=num_beams,
+            early_stopping=True,
+            num_return_sequences=1,
+            logits_processor=logits_processor,
+            stopping_criteria=stopping_criteria,
+        )
+        
         return beam_output
 
+    def _generate_with_random_insertion(
+            self,
+            input_ids,
+            max_new_tokens,
+            stopping_criteria,
+            random_insertion_prob,
+            ids_to_insert,
+            decode=False
+    ):
+        n_new_tokens = 0
+
+        ids_to_insert = ids_to_insert.detach().clone()
+        if ids_to_insert.ndim == 1:
+            ids_to_insert = ids_to_insert.unsqueeze(0)
+        if ids_to_insert.shape[0] != input_ids.shape[0]:
+            N = input_ids.shape[0] // ids_to_insert.shape[0]
+            ids_to_insert = ids_to_insert.expand(N, ids_to_insert.shape[1:])
+
+        while n_new_tokens < max_new_tokens:
+            outputs = self.base_model(input_ids=input_ids)
+            next_token_logits = outputs.logits[:, -1, :]
+            pred_next_ids = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+
+            if random.uniform(0, 1) < random_insertion_prob:
+                inserted_ids = ids_to_insert.detach().clone()
+                input_ids = torch.cat([input_ids, inserted_ids, pred_next_ids], dim=1)
+                n_new_tokens += 2
+            else:
+                input_ids = torch.cat([input_ids, pred_next_ids], dim=1)
+                n_new_tokens += 1
+
+            if stopping_criteria is not None:
+                if stopping_criteria(input_ids, next_token_logits).all():
+                    break
+            elif (pred_next_ids == self.tokenizer.eos_token_id).all():
+                break
+        
+        if not decode:
+            return input_ids
+        
+        texts_generated = self._decode_generated_ids(input_ids)
+        return input_ids, texts_generated
+            
     def _generate_with_shifted_position_ids(
             self,
             input_ids,
