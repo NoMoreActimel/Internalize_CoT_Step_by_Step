@@ -9,7 +9,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteriaLi
 import sys
 
 from configuration_model import ImplicitModelConfig
-from utils import get_sep_position, DoubleEOSStoppingCriteria, DoubleEOSLogitsProcessor
+from utils import get_sep_position, DoubleEOSStoppingCriteria, DoubleEOSLogitsProcessor, COT_ANSWER_SPLIT_PATTERN
 
 
 class ImplicitModel(nn.Module):
@@ -177,7 +177,8 @@ class ImplicitModel(nn.Module):
                 input_ids,
                 max_new_tokens,
                 stopping_criteria,
-                random_insertion_prob
+                random_insertion_prob,
+                ids_to_insert
             )
         
         first_generation = insert_position
@@ -232,13 +233,23 @@ class ImplicitModel(nn.Module):
         if ids_to_insert.shape[0] != input_ids.shape[0]:
             N = input_ids.shape[0] // ids_to_insert.shape[0]
             ids_to_insert = ids_to_insert.expand(N, ids_to_insert.shape[1:])
-
+        
+        split_ids = self.tokenizer.encode(COT_ANSWER_SPLIT_PATTERN, add_special_tokens=False)
+        split_ids = torch.tensor(split_ids, device=input_ids.device)
+        
+        masking_flag = True
         while n_new_tokens < max_new_tokens:
             outputs = self.base_model(input_ids=input_ids)
             next_token_logits = outputs.logits[:, -1, :]
             pred_next_ids = torch.argmax(next_token_logits, dim=-1, keepdim=True)
 
-            if random.uniform(0, 1) < random_insertion_prob:
+            if (pred_next_ids == self.tokenizer.eos_token_id).any():
+                masking_flag = False
+            
+            if torch.isin(pred_next_ids, split_ids).any():
+                masking_flag = False
+
+            if masking_flag and random.uniform(0, 1) < random_insertion_prob:
                 inserted_ids = ids_to_insert.detach().clone()
                 input_ids = torch.cat([input_ids, inserted_ids, pred_next_ids], dim=1)
                 n_new_tokens += 2
