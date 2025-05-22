@@ -51,14 +51,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.generative_eval_hooks = []
         if self.val_generation_kwargs["position_ids_shift"]:
             self.generative_eval_hooks.append(self.generation_eval_position_ids_shift_hook)
-
-        if self.args.replace_mask:
-            self.val_generation_kwargs["insert_const_ids_in_cot"] = True
-            self.insert_const_ids_func = self.sample_random_contiguous_mask
-            self.generative_eval_hooks.append(self.generation_eval_insert_ids_hook)
-        else:
-            self.insert_const_ids_func = None
-
+        
         # For generative eval in case of left_to_right_removal & joint_masked_distribution
         self.n_tokens_removed = None
 
@@ -69,6 +62,16 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             if len(self.mask_id) != 1: # supposing the tokenizer prepends BOS
                 self.mask_id = self.mask_id[-1]
         self.mask_id = self.mask_id.to(self.device)
+
+        # For eval with mask insertion
+        self.insert_const_ids_func = None
+        if self.args.replace_mask:
+            self.val_generation_kwargs["insert_const_ids_in_cot"] = True
+            self.insert_const_ids_func = self.sample_random_contiguous_mask
+            self.generative_eval_hooks.append(self.generation_eval_insert_ids_hook)
+
+            if not (self.left_to_right_removal or self.random_contiguous_removal):
+                self.insert_const_ids_func = self.mask_token_insert_func
 
         # Metrics
         additional_metrics = ["removal_p"]
@@ -205,6 +208,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         if generation_kwargs.get("position_ids_shift", None) is not None:
             generation_kwargs["position_ids_shift"] = getattr(self, "n_tokens_removed", None)
         return generation_kwargs
+
+    def mask_token_insert_func(self, batch, val_removal_p):
+        return self.mask_id.clone().detach().unsqueeze(0), None
 
     def sample_random_contiguous_mask(self, batch, val_removal_p):
         input_ids = batch["input_ids"]

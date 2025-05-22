@@ -3,6 +3,8 @@ import torch
 from transformers import StoppingCriteria, LogitsProcessor
 
 
+COT_ANSWER_SPLIT_PATTERN = "####"
+
 def save_model(model, tokenizer, model_dir):
     print ('saving', model_dir)
     os.makedirs(model_dir, exist_ok=True)
@@ -48,22 +50,22 @@ def get_sep_position(input_ids, sep_id, skip=0):
 
 
 def extract_answer(text):
-    split_pattern = '####'
+    split_pattern = COT_ANSWER_SPLIT_PATTERN
     if split_pattern not in text:
         return text.strip().replace(',', '')
     else:
-        _, ans = text.strip().split('####', 1)
-        ans = '####' + ans
+        _, ans = text.strip().split(COT_ANSWER_SPLIT_PATTERN, 1)
+        ans = COT_ANSWER_SPLIT_PATTERN + ans
         ans = ans.strip().replace(',', '')
         return ans
 
 def extract_cot(text):
-    split_pattern = '####'
+    split_pattern = COT_ANSWER_SPLIT_PATTERN
     if split_pattern not in text:
         #import pdb; pdb.set_trace()
         return None
     else:
-        cot, _ = text.strip().split('####', 1)
+        cot, _ = text.strip().split(COT_ANSWER_SPLIT_PATTERN, 1)
         cot = cot.strip()
         return cot
 
