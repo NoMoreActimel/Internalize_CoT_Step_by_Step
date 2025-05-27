@@ -281,7 +281,7 @@ class ImplicitModel(nn.Module):
         
             # If too many masks without answer split yet, force answer split, disable masking and generate more
             if n_new_tokens == max_new_tokens and split_flag is False:
-                split_ids = split_ids.unsqueeze(0).expand(input_ids.shape[0], split_ids.shape)
+                split_ids = split_ids.unsqueeze(0).expand(input_ids.shape[0], *split_ids.shape)
                 input_ids = torch.cat([input_ids, split_ids], dim=1)
                 masking_flag = True
                 split_flag = True
