@@ -92,9 +92,12 @@ class StepByStepTrainer(BaseTrainer):
                 if self.scheduled_to_remove >= self.args.remove_all_when_remove_beyond:
                     self.scheduled_to_remove = float('inf') # remove all
 
-                input_ids, labels, position_ids, all_cot_removed_in_batch = self.process_input_truncation(
+                batch, all_cot_removed_in_batch = self.process_input_truncation(
                     batch, epoch, disable_random_removal_offset=False
                 )
+                input_ids = batch["input_ids"]
+                labels = batch["labels"]
+                position_ids = batch["position_ids"]
 
                 # if not all_cot_removed_in_batch:
                 #     best_val_accuracy = float('-inf')
