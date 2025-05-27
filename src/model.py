@@ -18,6 +18,7 @@ class ImplicitModel(nn.Module):
         self.config = config
         self.base_model = AutoModelForCausalLM.from_pretrained(
             config.base_model,
+            config.config,
             trust_remote_code=True
             # attn_implementation="sdpa" if not use_flash_attention else "flash_attention_2"
         )
