@@ -18,7 +18,7 @@ class ImplicitModel(nn.Module):
         self.config = config
         self.base_model = AutoModelForCausalLM.from_pretrained(
             config.base_model,
-            config.config,
+            config=config.config,
             trust_remote_code=True
             # attn_implementation="sdpa" if not use_flash_attention else "flash_attention_2"
         )
@@ -267,7 +267,9 @@ class ImplicitModel(nn.Module):
 
                     # Adjuct n_new_tokens in case answer does not fit into limits
                     if max_new_tokens - n_new_tokens < len(split_ids) + self.default_answer_length_limit:
-                        n_new_tokens = max(0, n_new_tokens - len(split_ids))
+                        # n_new_tokens = max(0, n_new_tokens - len(split_ids))
+                        # let model generate the answer till the end
+                        max_new_tokens += len(split_ids) + self.default_answer_length_limit
 
                 input_ids = torch.cat([input_ids, pred_next_ids], dim=1)
 
@@ -283,9 +285,13 @@ class ImplicitModel(nn.Module):
             if n_new_tokens == max_new_tokens and split_flag is False:
                 split_ids = split_ids.unsqueeze(0).expand(input_ids.shape[0], *split_ids.shape)
                 input_ids = torch.cat([input_ids, split_ids], dim=1)
-                masking_flag = True
+                masking_flag = False
                 split_flag = True
-                n_new_tokens = 0
+
+                # let model generate the answer till the end
+                max_new_tokens += len(split_ids) + self.default_answer_length_limit
+
+
                 
             
         if not decode:

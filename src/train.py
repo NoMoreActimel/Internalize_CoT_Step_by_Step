@@ -269,6 +269,14 @@ def main():
     if args.train_type == "jepa-cot-distill":
         ref_model = model
         _, model, __ = create_jepa_model(config, ref_model, args, device)
+    
+    print("MODEL ARCHITECTURE:")
+    print(model)
+    
+    if args.model == "gpt2" and args.n_head is not None:
+        for idx, layer in enumerate(model.base_model.transformer.h):
+            if hasattr(layer, "attn"):
+                print(f"Layer {idx + 1}, num attn heads: {layer.attn.num_heads}")
 
     # Load Data
     train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)
