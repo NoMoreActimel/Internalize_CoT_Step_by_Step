@@ -11,14 +11,14 @@ import sys
 from configuration_model import ImplicitModelConfig
 from utils import get_sep_position, DoubleEOSStoppingCriteria, DoubleEOSLogitsProcessor, COT_ANSWER_SPLIT_PATTERN
 
-
 class ImplicitModel(nn.Module):
-    def __init__(self, config, reinitialize_weights=False, use_flash_attention=False):
+    def __init__(self, config, reinitialize_weights=False, use_flash_attention=False, default_answer_length_limit=20):
         super().__init__()
 
         self.config = config
         self.base_model = AutoModelForCausalLM.from_pretrained(
             config.base_model,
+            config=config.config,
             trust_remote_code=True
             # attn_implementation="sdpa" if not use_flash_attention else "flash_attention_2"
         )
@@ -27,6 +27,10 @@ class ImplicitModel(nn.Module):
             self.base_model.apply(self.base_model._init_weights)
         
         self.tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_name)
+
+        # Needed for evaluation with random inserts:
+        # In case we insert too many masks and hit the max number of tokens, we need to expand the limits
+        self.default_answer_length_limit = default_answer_length_limit
 
     def forward(self, input_ids, position_ids=None, output_attentions=False):
         if position_ids is not None:
@@ -227,6 +231,7 @@ class ImplicitModel(nn.Module):
     ):
         n_new_tokens = 0
 
+        # Insert the same ids for each batch item
         ids_to_insert = ids_to_insert.detach().clone()
         if ids_to_insert.ndim == 1:
             ids_to_insert = ids_to_insert.unsqueeze(0)
@@ -234,35 +239,65 @@ class ImplicitModel(nn.Module):
             N = input_ids.shape[0] // ids_to_insert.shape[0]
             ids_to_insert = ids_to_insert.expand(N, ids_to_insert.shape[1:])
         
+        # To track the CoT | answer split
         split_ids = self.tokenizer.encode(COT_ANSWER_SPLIT_PATTERN, add_special_tokens=False)
         split_ids = torch.tensor(split_ids, device=input_ids.device)
-        
+        split_flag = False
+
+        print("SPLIT IDS:", split_ids)
+        print("WITHOUT SPACES:", self.tokenizer.encode(COT_ANSWER_SPLIT_PATTERN, add_special_tokens=False))
+        print("SPACE:", self.tokenizer.encode(" ", add_special_tokens=False))
+
+        # To disable masking after split / number of tokens limit
         masking_flag = True
+
         while n_new_tokens < max_new_tokens:
-            outputs = self.base_model(input_ids=input_ids)
-            next_token_logits = outputs.logits[:, -1, :]
-            pred_next_ids = torch.argmax(next_token_logits, dim=-1, keepdim=True)
-
-            if (pred_next_ids == self.tokenizer.eos_token_id).any():
-                masking_flag = False
-            
-            if torch.isin(pred_next_ids, split_ids).any():
-                masking_flag = False
-
             if masking_flag and random.uniform(0, 1) < random_insertion_prob:
                 inserted_ids = ids_to_insert.detach().clone()
-                input_ids = torch.cat([input_ids, inserted_ids, pred_next_ids], dim=1)
-                n_new_tokens += 2
+                input_ids = torch.cat([input_ids, inserted_ids], dim=1)
             else:
-                input_ids = torch.cat([input_ids, pred_next_ids], dim=1)
-                n_new_tokens += 1
+                outputs = self.base_model(input_ids=input_ids)
+                next_token_logits = outputs.logits[:, -1, :]
+                pred_next_ids = torch.argmax(next_token_logits, dim=-1, keepdim=True)
 
-            if stopping_criteria is not None:
-                if stopping_criteria(input_ids, next_token_logits).all():
+                # If eos is hit
+                if (pred_next_ids == self.tokenizer.eos_token_id).any():
+                    masking_flag = False
+                
+                # If intersecting with CoT | answer split, stop adding masks
+                if torch.isin(pred_next_ids, split_ids).any():
+                    split_flag = True
+                    masking_flag = False
+
+                    # Adjuct n_new_tokens in case answer does not fit into limits
+                    if max_new_tokens - n_new_tokens < len(split_ids) + self.default_answer_length_limit:
+                        # n_new_tokens = max(0, n_new_tokens - len(split_ids))
+                        # let model generate the answer till the end
+                        max_new_tokens += len(split_ids) + self.default_answer_length_limit
+
+                input_ids = torch.cat([input_ids, pred_next_ids], dim=1)
+
+                if stopping_criteria is not None:
+                    if stopping_criteria(input_ids, next_token_logits).all():
+                        break
+                elif (pred_next_ids == self.tokenizer.eos_token_id).all():
                     break
-            elif (pred_next_ids == self.tokenizer.eos_token_id).all():
-                break
+                
+            n_new_tokens += 1
         
+            # If too many masks without answer split yet, force answer split, disable masking and generate more
+            if n_new_tokens == max_new_tokens and split_flag is False:
+                split_ids = split_ids.unsqueeze(0).expand(input_ids.shape[0], *split_ids.shape)
+                input_ids = torch.cat([input_ids, split_ids], dim=1)
+                masking_flag = False
+                split_flag = True
+
+                # let model generate the answer till the end
+                max_new_tokens += len(split_ids) + self.default_answer_length_limit
+
+
+                
+            
         if not decode:
             return input_ids
         
@@ -478,3 +513,4 @@ class ImplicitModel(nn.Module):
         self.config.save_pretrained(save_directory)
         state_dict = self.state_dict()
         torch.save(state_dict, os.path.join(save_directory, 'state_dict.bin'))
+

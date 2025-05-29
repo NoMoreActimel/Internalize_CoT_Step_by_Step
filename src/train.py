@@ -131,9 +131,9 @@ def main():
     parser.add_argument('--huggingface_dataset', action='store_true', default=False)
     parser.add_argument('--path', type=str, default=None)
     parser.add_argument('--name', type=str, default=None)
-    parser.add_argument('--train_split', type=str, default=None)
-    parser.add_argument('--val_split', type=str, default=None)
-    parser.add_argument('--test_split', type=str, default=None)
+    parser.add_argument('--train_split', type=str, default="train")
+    parser.add_argument('--val_split', type=str, default="val")
+    parser.add_argument('--test_split', type=str, default="test")
     parser.add_argument('--data_files', type=str, default=None)
     parser.add_argument('--max_samples', type=str, default=None)
     parser.add_argument('--shuffle', action='store_true', default=False)
@@ -269,6 +269,14 @@ def main():
     if args.train_type == "jepa-cot-distill":
         ref_model = model
         _, model, __ = create_jepa_model(config, ref_model, args, device)
+
+    print("MODEL ARCHITECTURE:")
+    print(model)
+    
+    if args.model == "gpt2" and args.n_head is not None:
+        for idx, layer in enumerate(model.base_model.transformer.h):
+            if hasattr(layer, "attn"):
+                print(f"Layer {idx + 1}, num attn heads: {layer.attn.num_heads}")
 
     # Load Data
     train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)

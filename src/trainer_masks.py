@@ -33,7 +33,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         if self.no_cot_stage:
             self.val_removal_ps = [0.0, 1.0]
         else:
-            self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 0.9, 1.0]
+            self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 0.9, 0.95, 0.98, 1.0]
 
         self.val_truncation_kwargs = {
             "eval_flag": self.joint_masked_distribution
@@ -137,10 +137,6 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                         loss = outputs.loss
                         logits = outputs.logits
                         
-                    if self.accelerator.is_main_process:
-                        print("  logits autocast dtype:", logits.dtype)
-                        print("  loss autocast dtype:", loss.dtype)
-
                     loss_log[-1].append(loss.item())
                     self.accelerator.backward(loss.div(self.args.accumulate))
                     grad_norm = self.get_grad_norm()

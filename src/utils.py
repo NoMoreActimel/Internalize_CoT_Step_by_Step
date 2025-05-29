@@ -3,7 +3,7 @@ import torch
 from transformers import StoppingCriteria, LogitsProcessor
 
 
-COT_ANSWER_SPLIT_PATTERN = "####"
+COT_ANSWER_SPLIT_PATTERN = " #### "
 
 def save_model(model, tokenizer, model_dir):
     print ('saving', model_dir)
