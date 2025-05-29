@@ -244,10 +244,6 @@ class ImplicitModel(nn.Module):
         split_ids = torch.tensor(split_ids, device=input_ids.device)
         split_flag = False
 
-        print("SPLIT IDS:", split_ids)
-        print("WITHOUT SPACES:", self.tokenizer.encode(COT_ANSWER_SPLIT_PATTERN, add_special_tokens=False))
-        print("SPACE:", self.tokenizer.encode(" ", add_special_tokens=False))
-
         # To disable masking after split / number of tokens limit
         masking_flag = True
 

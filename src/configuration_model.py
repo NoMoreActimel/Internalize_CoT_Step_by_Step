@@ -1,44 +1,4 @@
-from transformers import PretrainedConfig
 from transformers import AutoConfig, AutoModelForCausalLM
-
-
-# class ImplicitModelConfig(PretrainedConfig):
-#     def __init__(
-#         self,
-#         base_model='gpt2',
-#         n_head=None,
-#         **kwargs,
-#     ):
-#         super().__init__(**kwargs)
-
-#         defaults = AutoConfig.from_pretrained(base_model).to_dict()
-#         defaults.update(kwargs)
-#         super().__init__(**defaults)
-
-#         self.base_model = base_model
-#         self.tokenizer_name = base_model
-
-#         print("N_HEAD:", n_head)
-
-#         if n_head is not None:
-#             emb = getattr(self, "n_embd", None) or getattr(self, "d_model", None)
-
-#             # assert hasattr(self, "n_head"), \
-#             #     f"Attempting to change n_head attribute which does not exist for the selected {base_model} model"
-#             if emb is not None:
-#                 assert self.n_embd % n_head == 0, \
-#                     f"Incorrect n_head provided: {n_head}, n_embd = {self.n_embd} must be divisible by n_head"
-
-#             if hasattr(self, "num_attention_heads"):
-#                 print(f"Layer {idx + 1}, overriding num_attention_heads: {self.num_attention_heads} to {n_head}")
-
-#             self.num_attention_heads = n_head
-            
-#             # for idx, layer in enumerate(model.base_model.transformer.h):
-#             #     if hasattr(layer, "attn"):
-#             #         if hasattr(self, "n_head"):
-#             #             print(f"Layer {idx + 1}, overriding num_heads: {layer.attn.num_heads} to {n_head}")
-
 
 class ImplicitModelConfig:
     def __init__(self, base_model="gpt2", n_head=None, **kwargs):
