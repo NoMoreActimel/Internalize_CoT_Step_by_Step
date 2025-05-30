@@ -3,6 +3,8 @@ from torch.utils.data import Dataset
 
 from data_chunked import CoTDatasetChunks
 
+from utils import COT_ANSWER_SPLIT_PATTERN
+
 
 class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
     def __init__(
@@ -55,7 +57,17 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
         self.num_new_tokens = num_new_tokens
 
         lines = self._read_lines()
+        lines = self._format_answers(lines)
         self.dataset = self._process_examples(lines)
+    
+    def _format_answers(self, lines):
+        new_lines = []
+        for q, a in lines:
+            al, ar = a.split(COT_ANSWER_SPLIT_PATTERN.strip())
+            al, ar = al.strip(), ar.strip()
+            a = al + COT_ANSWER_SPLIT_PATTERN + ar
+            new_lines.append((q, a))
+        return new_lines
     
     def _read_lines(self):
         return [(item[self.question_key], item[self.answer_key]) for item in self.dataset]
