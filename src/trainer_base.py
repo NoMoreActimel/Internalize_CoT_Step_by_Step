@@ -124,11 +124,28 @@ class BaseTrainer:
         #     total_tokens += outputs.total_tokens
 
         # separate gen eval for batch_size = 1 in case of mask insertion
-        for batch_idx, batch_initial in tqdm.tqdm(enumerate(dataloader)):
-            batch, _ = self.process_input_truncation(batch_initial, **truncation_kwargs)
-            with self.accelerator.autocast():
-                if self.args.keep_position:
-                    batch["position_ids"] = batch["position_ids"][:, :batch["input_ids"].shape[-1]]
+        if perform_generative_eval:
+            for batch_idx, batch_initial in tqdm.tqdm(enumerate(dataloader)):
+                if batch_idx >=  getattr(self.args, "n_generative_eval_batches", 1):
+                    break
+                
+                batch, _ = self.process_input_truncation(batch_initial, **truncation_kwargs)
+                with self.accelerator.autocast():
+                    if self.args.keep_position:
+                        batch["position_ids"] = batch["position_ids"][:, :batch["input_ids"].shape[-1]]
+                
+                if generative_eval_single_batch_size and batch["input_ids"].shape[0] != 1:
+                    # all batch values should have batch_size = 1 to support non-equal CoT sizes
+                    batches = []
+                    for i in range(batch["input_ids"].shape[0]):
+                        batch_i = {}
+                        for k, v in batch.items():
+                            batch_i[k] = v
+                            if isinstance(v, torch.Tensor):
+                                batch_i[k] = v[i].unsqueeze(0)
+                        batches.append(batch_i)
+                else:
+                    batches = [batch]
             
             if generative_eval_single_batch_size and batch["input_ids"].shape[0] != 1:
                 # all batch values should have batch_size = 1 to support non-equal CoT sizes
