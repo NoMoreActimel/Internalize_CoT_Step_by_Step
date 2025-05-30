@@ -192,8 +192,16 @@ def main():
                         Target labels on training will have masked COTs.
                         Otherise, in case of replace_mask = True, labels will consist of all CoT
                         Works only together with --replace_mask""")
+    
+    # will use contiguous masks on eval even for random masks method
+    # this will use model.generate calls instead of for on forwards, with kv-cache
+    parser.add_argument('--eval_on_contiguous_masks', action='store_true', default=False)
 
-    # if we need to remove ## removed N ## hint - fine-tune on plain no-COT data
+    # Whether to put ## masked N ## hint or ## masked R% ## instead
+    # This one is better but harder, as it exludes cheating on validation
+    parser.add_argument('--prompt_in_percentage', action='store_true', default=False)
+
+    # if we need to remove ## masked N ## hint - fine-tune on plain no-COT data
     parser.add_argument('--no_cot_stage', action='store_true', default=False)
 
     # --remove_by_schedule and --removal_schedule from next section

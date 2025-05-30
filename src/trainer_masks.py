@@ -29,6 +29,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         self.removal_p = self.masks_removal_schedule[self.schedule_index][1]
         self.no_cot_stage = self.args.no_cot_stage
+        self.prompt_in_percentage = self.args.prompt_in_percentage
 
         if self.no_cot_stage:
             self.val_removal_ps = [0.0, 1.0]
@@ -71,7 +72,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             self.generative_eval_hooks.append(self.generation_eval_insert_ids_hook)
 
             if not (self.left_to_right_removal or self.random_contiguous_removal):
-                self.insert_const_ids_func = self.mask_token_insert_func
+                if not self.args.eval_on_contiguous_masks:
+                    self.insert_const_ids_func = self.mask_token_insert_func
 
         # Metrics
         additional_metrics = ["removal_p"]
@@ -184,7 +186,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 self.val_generation_kwargs["use_inputs_cot"] = False
 
             if not (self.left_to_right_removal or self.random_contiguous_removal):
-                self.val_generation_kwargs["random_insertion_prob"] = val_removal_p
+                if not self.args.eval_on_contiguous_masks and val_removal_p > 0.0:
+                    self.val_generation_kwargs["random_insertion_prob"] = val_removal_p
 
             self._evaluate(
                 dataloader=self.val_dataloader,
@@ -192,12 +195,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 truncation_kwargs={"val_removal_p": val_removal_p},
                 generation_kwargs=self.val_generation_kwargs,
                 perform_generative_eval=True,
-                generative_eval_hooks=self.generative_eval_hooks,
+                generative_eval_hooks=self.generative_eval_hooks if val_removal_p > 0.0 else [],
                 generative_eval_single_batch_size=self.val_generation_kwargs["insert_const_ids_in_cot"]
             )
     
     def generation_eval_insert_ids_hook(self, batch, truncation_kwargs, generation_kwargs):
-        # Regenerate with no trunc
         if generation_kwargs.get("insert_const_ids_in_cot", False):
             ids_to_insert, insert_position = self.insert_const_ids_func(batch, **truncation_kwargs)
             generation_kwargs["ids_to_insert"] = ids_to_insert
@@ -295,16 +297,19 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
     def same_elements(x):
         return (x == x[0]).all()
 
-    def _get_prefix_contiguous_truncation(self, n_tokens_to_remove, left_to_right=True, L=0):
+    def _get_prefix_contiguous_truncation(self, n_tokens_to_remove, removal_p, left_to_right=True, L=0):
         if self.no_cot_stage:
             prefix = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
             ignored_prefix_labels = torch.full_like(prefix, -100)
             return prefix, ignored_prefix_labels
         
-        if left_to_right:
-            prefix_str = f" ## masked {n_tokens_to_remove} ## "
+        if self.prompt_in_percentage:
+            prefix_str = f" ## masked {round(removal_p * 100)} % of CoT ## "
         else:
-            prefix_str = f" ## masked {n_tokens_to_remove} from {L} ## "
+            if left_to_right:
+                prefix_str = f" ## masked {n_tokens_to_remove} ## "
+            else:
+                prefix_str = f" ## masked {n_tokens_to_remove} from {L} ## "
 
         prefix = self.tokenizer(
             prefix_str,
@@ -370,7 +375,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         end = start + n_tokens_to_remove
         eos = eos_positions[0] if batched else eos_positions
 
-        prefix, ignored_prefix_labels = self._get_prefix_contiguous_truncation(n_tokens_to_remove, left_to_right, offset)
+        prefix, ignored_prefix_labels = self._get_prefix_contiguous_truncation(n_tokens_to_remove, removal_p, left_to_right, offset)
 
         if input_ids.ndim == 2:
             batch_size = input_ids.shape[0]
@@ -527,16 +532,19 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         remaining_indices = all_indices[~mask]
         return remaining_indices, removed_indices, mask
 
-    def _get_prefix_random_masking(self, cot_start, removed_indices):
+    def _get_prefix_random_masking(self, cot_start, removed_indices, removal_p):
         if self.no_cot_stage:
             prefix = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
             ignored_prefix_labels = torch.full_like(prefix, -100)
             return prefix, ignored_prefix_labels
         
-        if self.args.replace_mask:
-            prefix_str = f" ## masked {len(removed_indices)} ## "
+        if self.prompt_in_percentage:
+            prefix_str = f" ## masked {round(removal_p * 100)} % of CoT ## "
         else:
-            prefix_str = f" ## removed tokens: {(removed_indices - cot_start).tolist()} ## "
+            if self.args.replace_mask:
+                prefix_str = f" ## masked {len(removed_indices)} ## "
+            else:
+                prefix_str = f" ## removed tokens: {(removed_indices - cot_start).tolist()} ## " # for sanity check
 
         prefix = self.tokenizer(
             prefix_str,
@@ -580,7 +588,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             eos = eos_positions[batch_idx]
 
             remaining_indices, removed_indices, mask = self._get_random_cot_mask(cot_start, cot_end, n_tokens_to_remove)
-            prefix, ignored_prefix_labels = self._get_prefix_random_masking(cot_start, removed_indices)
+            prefix, ignored_prefix_labels = self._get_prefix_random_masking(cot_start, removed_indices, removal_p)
 
             if not self.args.replace_mask: # truncate selected tokens
                 if remaining_indices.shape[-1]:

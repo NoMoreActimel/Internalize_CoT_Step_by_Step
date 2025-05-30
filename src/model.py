@@ -260,8 +260,11 @@ class ImplicitModel(nn.Module):
                 if (pred_next_ids == self.tokenizer.eos_token_id).any():
                     masking_flag = False
                 
-                # If intersecting with CoT | answer split, stop adding masks
-                if torch.isin(pred_next_ids, split_ids).any():
+
+                input_ids = torch.cat([input_ids, pred_next_ids], dim=1)
+
+                # If got CoT | answer split, stop adding masks
+                if torch.isin(split_ids, input_ids).all():
                     split_flag = True
                     masking_flag = False
 
@@ -270,9 +273,7 @@ class ImplicitModel(nn.Module):
                         # n_new_tokens = max(0, n_new_tokens - len(split_ids))
                         # let model generate the answer till the end
                         max_new_tokens += len(split_ids) + self.default_answer_length_limit
-
-                input_ids = torch.cat([input_ids, pred_next_ids], dim=1)
-
+                
                 if stopping_criteria is not None:
                     if stopping_criteria(input_ids, next_token_logits).all():
                         break
