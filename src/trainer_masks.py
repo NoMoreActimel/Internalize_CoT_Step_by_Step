@@ -33,7 +33,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         if self.no_cot_stage:
             self.val_removal_ps = [0.0, 1.0]
         else:
-            self.val_removal_ps = [0.0, 0.25, 0.5, 0.75, 0.9, 0.95, 0.98, 1.0]
+            self.val_removal_ps = [1.0, 0.5, 0.75, 0.9, 0.95, 1.0]
 
         self.val_truncation_kwargs = {
             "eval_flag": self.joint_masked_distribution
@@ -179,6 +179,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
     
     def evaluate(self, step):
         for val_removal_p in self.val_removal_ps:
+            print(f"\nVALIDATION ON VAL_REMOVAL_P = {val_removal_p}\n")
             name = f"val_{val_removal_p}" if val_removal_p != 1.0 else "val"
                         
             if self.accelerator.is_main_process and self.writer:
@@ -190,7 +191,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 self.val_generation_kwargs["use_inputs_cot"] = False
 
             if not (self.left_to_right_removal or self.random_contiguous_removal):
-                self.val_generation_kwargs["random_insertion_prob"] = val_removal_p
+                self.val_generation_kwargs["random_insertion_prob"] = val_removal_p if val_removal_p > 0.0 else None
 
             self._evaluate(
                 dataloader=self.val_dataloader,
@@ -198,7 +199,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 truncation_kwargs={"val_removal_p": val_removal_p},
                 generation_kwargs=self.val_generation_kwargs,
                 perform_generative_eval=True,
-                generative_eval_hooks=self.generative_eval_hooks,
+                generative_eval_hooks=self.generative_eval_hooks if val_removal_p > 0.0 else [],
                 generative_eval_single_batch_size=self.val_generation_kwargs["insert_const_ids_in_cot"]
             )
     

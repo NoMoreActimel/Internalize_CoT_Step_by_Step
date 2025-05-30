@@ -110,18 +110,18 @@ class BaseTrainer:
         total_loss = 0
         total_generated = 0
 
-        for batch_idx, batch_initial in tqdm.tqdm(enumerate(dataloader)):
-            batch, _ = self.process_input_truncation(batch_initial, **truncation_kwargs)
-            # self.move_batch_to_device(batch, self.device) <-- handled by accelerator
+        # for batch_idx, batch_initial in tqdm.tqdm(enumerate(dataloader)):
+        #     batch, _ = self.process_input_truncation(batch_initial, **truncation_kwargs)
+        #     # self.move_batch_to_device(batch, self.device) <-- handled by accelerator
 
-            with self.accelerator.autocast():
-                if self.args.keep_position:
-                    batch["position_ids"] = batch["position_ids"][:, :batch["input_ids"].shape[-1]]
-                outputs = self.model.compute_loss(**batch)
+        #     with self.accelerator.autocast():
+        #         if self.args.keep_position:
+        #             batch["position_ids"] = batch["position_ids"][:, :batch["input_ids"].shape[-1]]
+        #         outputs = self.model.compute_loss(**batch)
 
-            total_loss += outputs.total_loss.item()
-            total_correct_tokens += outputs.total_correct.item()
-            total_tokens += outputs.total_tokens
+        #     total_loss += outputs.total_loss.item()
+        #     total_correct_tokens += outputs.total_correct.item()
+        #     total_tokens += outputs.total_tokens
 
         # separate gen eval for batch_size = 1 in case of mask insertion
         for batch_idx, batch_initial in tqdm.tqdm(enumerate(dataloader)):
@@ -142,6 +142,8 @@ class BaseTrainer:
                     batches.append(batch_i)
             else:
                 batches = [batch]
+                
+            print(f'\nGENERATE BATCH_IDX: {batch_idx} / {getattr(self.args, "n_generative_eval_batches", 1)}')
         
             for batch in batches:
                 # Generate + Evaluate

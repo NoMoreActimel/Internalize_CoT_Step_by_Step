@@ -54,7 +54,8 @@ def extract_answer(text):
     if split_pattern not in text:
         return text.strip().replace(',', '')
     else:
-        _, ans = text.strip().split(COT_ANSWER_SPLIT_PATTERN, 1)
+        _, ans = text.split(COT_ANSWER_SPLIT_PATTERN, 1)
+        ans = ans.strip()
         ans = COT_ANSWER_SPLIT_PATTERN + ans
         ans = ans.strip().replace(',', '')
         return ans
@@ -65,7 +66,7 @@ def extract_cot(text):
         #import pdb; pdb.set_trace()
         return None
     else:
-        cot, _ = text.strip().split(COT_ANSWER_SPLIT_PATTERN, 1)
+        cot, _ = text.split(COT_ANSWER_SPLIT_PATTERN, 1)
         cot = cot.strip()
         return cot
 
