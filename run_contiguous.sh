@@ -2,7 +2,7 @@
 
 cd /home/ss19021/Internalize_CoT_Step_by_Step/ || exit
 
-D=7
+D=9
 SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
 DIR="$SCRATCH_DIR/train_models/${D}_by_${D}_mult/gpt2_pretrained/random_contiguous_replace_from_scratch/"
 mkdir -p "$DIR"
@@ -13,7 +13,7 @@ python src/train.py \
     --val_path "$SCRATCH_DIR/data/${D}_by_${D}_mult/valid.txt" \
     --epochs 32 \
     --lr 5e-5 \
-    --batch_size 64 \
+    --batch_size 32 \
     --accumulate 1 \
     --removal_type random-masks \
     --joint_masked_distribution \

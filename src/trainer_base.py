@@ -146,7 +146,9 @@ class BaseTrainer:
                         batches.append(batch_i)
                 else:
                     batches = [batch]
-            
+                            
+                print(f'\nGENERATE BATCH_IDX: {batch_idx} / {getattr(self.args, "n_generative_eval_batches", 1)}')
+        
                 for batch in batches:
                     # Generate + Evaluate
                     # input_ids_all are cut to the start of COTs inside the model.generate
@@ -156,7 +158,7 @@ class BaseTrainer:
                             truncation_kwargs=truncation_kwargs,
                             generation_kwargs=generation_kwargs
                         )
-                    
+                        
                     first_sep_positions = get_sep_position(batch["input_ids"], self.tokenizer.eos_token_id)
                     with self.accelerator.autocast():
                         beam_outputs = self.model.generate(
@@ -191,7 +193,7 @@ class BaseTrainer:
         total_generated = reduce_func(total_generated)
         total_correct = reduce_func(total_correct)
 
-        accuracy = total_correct / total_generated
+        accuracy = total_correct / total_generated if perform_generative_eval else 0.0   
         token_accuracy = total_correct_tokens / total_tokens
         loss = total_loss / total_tokens
         ppl = math.exp(loss)

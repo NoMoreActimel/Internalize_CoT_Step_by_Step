@@ -286,6 +286,14 @@ def main():
             if hasattr(layer, "attn"):
                 print(f"Layer {idx + 1}, num attn heads: {layer.attn.num_heads}")
 
+    print("MODEL ARCHITECTURE:")
+    print(model)
+    
+    if args.model == "gpt2" and args.n_head is not None:
+        for idx, layer in enumerate(model.base_model.transformer.h):
+            if hasattr(layer, "attn"):
+                print(f"Layer {idx + 1}, num attn heads: {layer.attn.num_heads}")
+
     # Load Data
     train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)
 

@@ -2,9 +2,9 @@
 
 cd /home/ss19021/Internalize_CoT_Step_by_Step/ || exit
 
-D=7
+D=9
 SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
-DIR="$SCRATCH_DIR/train_models/${D}_by_${D}_mult/gpt2_pretrained/completely_random_masks_joint_from_scratch_2/"
+DIR="$SCRATCH_DIR/train_models/${D}_by_${D}_mult/gpt2_pretrained/completely_random_masks_joint_from_scratch_replace/"
 mkdir -p "$DIR"
 
 python src/train.py \
@@ -23,7 +23,7 @@ python src/train.py \
     --seed 3456 \
     --reset_optimizer \
     --wandb_project cot-distillation \
-    --wandb_run_name joint_${D}b${D}_random_masks_from_scratch \
+    --wandb_run_name joint_${D}b${D}_random_masks_from_scratch_labels_replace \
     --max_new_tokens 512 \
     --save_model "$DIR" \
     > "$DIR/log_masks.train" 2>&1

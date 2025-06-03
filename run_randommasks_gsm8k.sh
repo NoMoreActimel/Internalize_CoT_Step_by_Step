@@ -3,8 +3,11 @@
 cd /home/ss19021/Internalize_CoT_Step_by_Step/ || exit
 
 SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
-DIR="$SCRATCH_DIR/train_models/gsm8k/ll3b_pretrained/ll3b_contiguous_052925/"
+DIR="$SCRATCH_DIR/train_models/gsm8k/ll3b_pretrained/ll3b_randommasks_052925/"
 mkdir -p "$DIR"
+
+which python
+which accelerate
 
 accelerate launch \
   --mixed_precision=bf16 \
@@ -27,14 +30,15 @@ src/train.py \
     --train_type cot-distill \
     --removal_type random-masks \
     --joint_masked_distribution \
-    --random_contiguous_removal \
     --replace_mask \
     --pretrain_epochs 0 \
     --save_period 3 \
     --seed 3456 \
     --reset_optimizer \
     --wandb_project cot-distillation \
-    --wandb_run_name gsm8k_ll3b_contiguous_replace \
+    --wandb_run_name gsm8k_ll3b_randommasks \
     --max_new_tokens 512 \
     --save_model "$DIR" \
     > "$DIR/log_masks.train" 2>&1
+
+# --from_pretrained_checkpoint /scratch/ss19021/Internalize_CoT_Step_by_Step/train_models/gsm8k/ll3b_pretrained/ll3b_randommasks_2/checkpoint-epoch3.pth \
