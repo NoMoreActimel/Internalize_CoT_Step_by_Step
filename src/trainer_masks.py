@@ -192,8 +192,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             else:
                 self.val_generation_kwargs["use_inputs_cot"] = False
 
-            if not (self.left_to_right_removal or self.random_contiguous_removal):
+            if not (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask:
                 self.val_generation_kwargs["random_insertion_prob"] = val_removal_p if val_removal_p > 0.0 else None
+                self.val_generation_kwargs["insert_const_ids_in_cot"] = True if val_removal_p > 0.0 else None
 
             self._evaluate(
                 dataloader=self.val_dataloader,
@@ -218,7 +219,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         return generation_kwargs
 
     def mask_token_insert_func(self, batch, val_removal_p):
-        return self.mask_id.clone().detach().unsqueeze(0), None
+        return self.mask_id.clone().detach().unsqueeze(0), 0
 
     def sample_random_contiguous_mask(self, batch, val_removal_p):
         input_ids = batch["input_ids"]
