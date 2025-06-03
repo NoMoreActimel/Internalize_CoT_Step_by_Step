@@ -110,18 +110,18 @@ class BaseTrainer:
         total_loss = 0
         total_generated = 0
 
-        # for batch_idx, batch_initial in tqdm.tqdm(enumerate(dataloader)):
-        #     batch, _ = self.process_input_truncation(batch_initial, **truncation_kwargs)
-        #     # self.move_batch_to_device(batch, self.device) <-- handled by accelerator
+        for batch_idx, batch_initial in tqdm.tqdm(enumerate(dataloader)):
+            batch, _ = self.process_input_truncation(batch_initial, **truncation_kwargs)
+            # self.move_batch_to_device(batch, self.device) <-- handled by accelerator
 
-        #     with self.accelerator.autocast():
-        #         if self.args.keep_position:
-        #             batch["position_ids"] = batch["position_ids"][:, :batch["input_ids"].shape[-1]]
-        #         outputs = self.model.compute_loss(**batch)
+            with self.accelerator.autocast():
+                if self.args.keep_position:
+                    batch["position_ids"] = batch["position_ids"][:, :batch["input_ids"].shape[-1]]
+                outputs = self.model.compute_loss(**batch)
 
-        #     total_loss += outputs.total_loss.item()
-        #     total_correct_tokens += outputs.total_correct.item()
-        #     total_tokens += outputs.total_tokens
+            total_loss += outputs.total_loss.item()
+            total_correct_tokens += outputs.total_correct.item()
+            total_tokens += outputs.total_tokens
 
         # separate gen eval for batch_size = 1 in case of mask insertion
         if perform_generative_eval:
@@ -146,33 +146,19 @@ class BaseTrainer:
                         batches.append(batch_i)
                 else:
                     batches = [batch]
-            
-            if generative_eval_single_batch_size and batch["input_ids"].shape[0] != 1:
-                # all batch values should have batch_size = 1 to support non-equal CoT sizes
-                batches = []
-                for i in range(batch["input_ids"].shape[0]):
-                    batch_i = {}
-                    for k, v in batch.items():
-                        batch_i[k] = v
-                        if isinstance(v, torch.Tensor):
-                            batch_i[k] = v[i].unsqueeze(0)
-                    batches.append(batch_i)
-            else:
-                batches = [batch]
-                
-            print(f'\nGENERATE BATCH_IDX: {batch_idx} / {getattr(self.args, "n_generative_eval_batches", 1)}')
+                            
+                print(f'\nGENERATE BATCH_IDX: {batch_idx} / {getattr(self.args, "n_generative_eval_batches", 1)}')
         
-            for batch in batches:
-                # Generate + Evaluate
-                # input_ids_all are cut to the start of COTs inside the model.generate
-                if perform_generative_eval and batch_idx < getattr(self.args, "n_generative_eval_batches", 1):
+                for batch in batches:
+                    # Generate + Evaluate
+                    # input_ids_all are cut to the start of COTs inside the model.generate
                     for hook in generative_eval_hooks:
                         generation_kwargs = hook(
                             batch=batch,
                             truncation_kwargs=truncation_kwargs,
                             generation_kwargs=generation_kwargs
                         )
-                    
+                        
                     first_sep_positions = get_sep_position(batch["input_ids"], self.tokenizer.eos_token_id)
                     with self.accelerator.autocast():
                         beam_outputs = self.model.generate(
@@ -207,7 +193,7 @@ class BaseTrainer:
         total_generated = reduce_func(total_generated)
         total_correct = reduce_func(total_correct)
 
-        accuracy = total_correct / total_generated
+        accuracy = total_correct / total_generated if perform_generative_eval else 0.0   
         token_accuracy = total_correct_tokens / total_tokens
         loss = total_loss / total_tokens
         ppl = math.exp(loss)

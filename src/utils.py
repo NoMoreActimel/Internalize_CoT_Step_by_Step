@@ -48,14 +48,24 @@ def get_sep_position(input_ids, sep_id, skip=0):
 
     return sep_positions
 
+def safe_cot_split(text):
+    tmp = text.split(COT_ANSWER_SPLIT_PATTERN, 1)
+    
+    if (not hasattr(tmp, "__len__")) or len(tmp) != 2:
+        # try without spaces
+        cot, ans = text.split(COT_ANSWER_SPLIT_PATTERN.strip(), 1)
+    else:
+        cot, ans = tmp
+    
+    return cot.strip(), ans.strip()
+
 
 def extract_answer(text):
     split_pattern = COT_ANSWER_SPLIT_PATTERN
     if split_pattern not in text:
         return text.strip().replace(',', '')
     else:
-        _, ans = text.split(COT_ANSWER_SPLIT_PATTERN, 1)
-        ans = ans.strip()
+        _, ans = safe_cot_split(text)
         ans = COT_ANSWER_SPLIT_PATTERN + ans
         ans = ans.strip().replace(',', '')
         return ans
@@ -66,8 +76,7 @@ def extract_cot(text):
         #import pdb; pdb.set_trace()
         return None
     else:
-        cot, _ = text.split(COT_ANSWER_SPLIT_PATTERN, 1)
-        cot = cot.strip()
+        cot, _ = safe_cot_split(text)
         return cot
 
 
@@ -102,3 +111,4 @@ class DoubleEOSLogitsProcessor(LogitsProcessor):
             scores[done, :] = float('-inf')
             scores[done, self.eos_token_id] = 0
         return scores
+
