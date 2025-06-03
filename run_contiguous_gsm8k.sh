@@ -11,7 +11,9 @@ python src/train.py \
     --huggingface_dataset \
     --path openai/gsm8k \
     --name main \
-    --split train \
+    --train_split train \
+    --val_split test \
+    --test_split test \
     --epochs 32 \
     --lr 5e-5 \
     --batch_size 32 \
