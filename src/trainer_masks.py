@@ -29,9 +29,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         self.removal_p = self.masks_removal_schedule[self.schedule_index][1]
         self.no_cot_stage = self.args.no_cot_stage
+        self.no_cot_stage_mask_length = self.args.no_cot_stage_mask_length
         self.prompt_in_percentage = self.args.prompt_in_percentage
 
-        if self.no_cot_stage:
+        if self.no_cot_stage or (not self.args.intermediate_eval):
             self.val_removal_ps = [0.0, 1.0]
         else:
             self.val_removal_ps = [0.0, 0.5, 0.75, 0.9, 0.95, 1.0]
@@ -193,8 +194,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 self.val_generation_kwargs["use_inputs_cot"] = False
 
             if not (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask:
-                self.val_generation_kwargs["random_insertion_prob"] = val_removal_p if val_removal_p > 0.0 else None
-                self.val_generation_kwargs["insert_const_ids_in_cot"] = True if val_removal_p > 0.0 else None
+                random_insertion_prob, insert_const_ids_in_cot = None, None
+                if val_removal_p != 0.0 and val_removal_p != 1.0:
+                    random_insertion_prob = val_removal_p
+                    insert_const_ids_in_cot = True
+                self.val_generation_kwargs["random_insertion_prob"] = random_insertion_prob
+                self.val_generation_kwargs["insert_const_ids_in_cot"] = insert_const_ids_in_cot
 
             self._evaluate(
                 dataloader=self.val_dataloader,
@@ -336,15 +341,22 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         if cot_start < start:
             ids_to_cat.append(ids[..., cot_start:start])
 
+        # Otherwise, it is either no_cot_stage without replace_mask (full deletion), or we plug in masks of original length
         if self.args.replace_mask:
-            if labels_flag and (self.args.replace_mask_in_labels is False):
-                # Recover all COT tokens in labels in case of mask replacement
-                ids_to_cat.append(ids[..., start:end])
+            if self.no_cot_stage and self.no_cot_stage_mask_length is not None:
+                        mask_shape = list(ids.shape)
+                        mask_shape[-1] = self.no_cot_stage_mask_length
+                        mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id.item(), dtype=torch.long, device=ids.device)
+                        ids_to_cat.append(mask_tensor)
             else:
-                mask_shape = list(ids.shape)
-                mask_shape[-1] = (end - start).item()
-                mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id.item(), dtype=torch.long, device=ids.device)
-                ids_to_cat.append(mask_tensor)
+                if labels_flag and (self.args.replace_mask_in_labels is False):
+                    # Recover all COT tokens in labels in case of mask replacement
+                    ids_to_cat.append(ids[..., start:end])
+                else:
+                    mask_shape = list(ids.shape)
+                    mask_shape[-1] = (end - start).item()
+                    mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id.item(), dtype=torch.long, device=ids.device)
+                    ids_to_cat.append(mask_tensor)
         
         ids_to_cat.append(ids[..., end:eos + 1])
 

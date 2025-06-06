@@ -197,12 +197,15 @@ def main():
     # this will use model.generate calls instead of for on forwards, with kv-cache
     parser.add_argument('--eval_on_contiguous_masks', action='store_true', default=False)
 
+    parser.add_argument('--intermediate_eval', action='store_true', default=False)
+
     # Whether to put ## masked N ## hint or ## masked R% ## instead
     # This one is better but harder, as it exludes cheating on validation
     parser.add_argument('--prompt_in_percentage', action='store_true', default=False)
 
     # if we need to remove ## masked N ## hint - fine-tune on plain no-COT data
     parser.add_argument('--no_cot_stage', action='store_true', default=False)
+    parser.add_argument('--no_cot_stage_mask_length', type=int, default=None)
 
     # --remove_by_schedule and --removal_schedule from next section
 
