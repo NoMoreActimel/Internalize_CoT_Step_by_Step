@@ -238,8 +238,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         n_tokens_to_remove = int(np.round(val_removal_p * length.item()))
 
         insert_position = 0 if self.left_to_right_removal else random.choice(torch.arange(0, length - n_tokens_to_remove + 1))
-        ids_to_insert = torch.full((input_ids.shape[0], n_tokens_to_remove), self.mask_id).to(self.device)
-
+        mask_shape = (input_ids.shape[0], n_tokens_to_remove)
+        ids_to_insert = torch.full(mask_shape, self.mask_id.item(), dtype=torch.long, device=input_ids.device)
         return ids_to_insert, insert_position
         
     def process_input_truncation(self, batch, val_removal_p=None):
