@@ -100,13 +100,10 @@ class SimpleTrainer(BaseTrainer):
             self.save_epoch(epoch)
 
     def process_input_truncation(self, batch):
-        input_ids = batch['input_ids']
-        labels = batch['labels']
-
         if self.args.keep_position:
-            position_ids = torch.arange(0, input_ids.shape[-1], dtype=torch.long, device=self.device)
-            if input_ids.ndim == 2:
-                position_ids = position_ids.unsqueeze(0).repeat(input_ids.shape[0], 1)
-            return input_ids, labels, position_ids, False
-
-        return input_ids, labels, None, False
+            position_ids = torch.arange(0, batch["input_ids"].shape[-1], dtype=torch.long, device=self.device)
+            if batch['input_ids'].ndim == 2:
+                position_ids = position_ids.unsqueeze(0).repeat(batch['input_ids'].shape[0], 1)
+            batch["position_ids"] = position_ids
+        
+        return batch, False
