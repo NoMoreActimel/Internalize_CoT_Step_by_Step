@@ -176,14 +176,16 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
 
-            self.evaluate(step)
+            self.evaluate(step, base_name="val")
+            if self.args.test_path:
+                self.evaluate(step, base_name="test")
 
             self.save_epoch(epoch)
     
-    def evaluate(self, step):
+    def evaluate(self, step, base_name="val"):
         for val_removal_p in self.val_removal_ps:
             print(f"\nVALIDATION ON VAL_REMOVAL_P = {val_removal_p}\n")
-            name = f"val_{val_removal_p}" if val_removal_p != 1.0 else "val"
+            name = f"{base_name}_{val_removal_p}" if val_removal_p != 1.0 else base_name
                         
             if self.accelerator.is_main_process and self.writer:
                 self.writer.set_step(step, mode=name)

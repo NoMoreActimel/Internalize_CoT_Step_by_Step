@@ -149,6 +149,16 @@ class StepByStepTrainer(BaseTrainer):
                 self.val_generation_kwargs,
                 perform_generative_eval=True
             )
+            if self.args.test_path:
+                if self.accelerator.is_main_process and self.writer:
+                    self.writer.set_step(step, mode="test")
+                accuracy, token_accuracy, ppl = self.evaluate(
+                    self.test_dataloader,
+                    "test",
+                    self.val_truncation_kwargs,
+                    self.val_generation_kwargs,
+                    perform_generative_eval=True
+                )
 
             # if accuracy > best_val_accuracy:
             #     print ('***best so far or removed more CoT tokens***')
