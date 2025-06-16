@@ -43,7 +43,10 @@ class SimpleTrainer(BaseTrainer):
             print(print_line)
 
             for batch in tqdm.tqdm(self.train_dataloader):
-                input_ids, labels, position_ids, _ = self.process_input_truncation(batch)
+                batch, all_cot_removed_in_batch = self.process_input_truncation(batch)
+                input_ids = batch["input_ids"]
+                labels = batch["labels"]
+                position_ids = batch["position_ids"]
 
                 # if not all_cot_removed_in_batch:
                 #     best_val_accuracy = float('-inf')
