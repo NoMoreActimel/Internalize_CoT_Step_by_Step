@@ -113,6 +113,7 @@ class SimpleTrainer(BaseTrainer):
             self.save_epoch(epoch)
 
     def process_input_truncation(self, batch):
+        batch["position_ids"] = None
         if self.args.keep_position:
             position_ids = torch.arange(0, batch["input_ids"].shape[-1], dtype=torch.long, device=self.device)
             if batch['input_ids'].ndim == 2:
