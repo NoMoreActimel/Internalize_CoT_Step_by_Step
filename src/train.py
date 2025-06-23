@@ -141,6 +141,10 @@ def main():
     parser.add_argument('--question_key', type=str, default="question")
     parser.add_argument('--answer_key', type=str, default="answer")
 
+    parser.add_argument('--pad_cot', action='store_true', default=False)
+    parser.add_argument('--max_cot_length', type=int, default=128)
+    parser.add_argument('--cot_pad_id', type=int, default=None)
+
     parser.add_argument('--epochs', type=int, default=1)
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--batch_size', type=int, default=32)
