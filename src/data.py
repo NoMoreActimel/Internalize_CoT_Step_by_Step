@@ -24,6 +24,10 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     dataset_kwargs["max_size"] = args.max_size if split == "train" else -1
     dataset_kwargs["max_length"] = args.max_len_train
 
+    dataset_kwargs["pad_cot"] = args.pad_cot
+    dataset_kwargs["max_cot_length"] = args.max_cot_length
+    dataset_kwargs["cot_pad_id"] = args.cot_pad_id
+
     if args.removal_type == 'step-by-step':
         DatasetClass = CoTDataset
         CollateClass = CoTDataCollator

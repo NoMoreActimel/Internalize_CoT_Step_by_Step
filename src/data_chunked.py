@@ -42,7 +42,19 @@ def add_new_tokens(model, tokenizer, num_new_tokens):
 
 
 class CoTDatasetChunks(Dataset):
-    def __init__(self, tokenizer, path, max_length=-1, max_size=-1, chunk_size=8, num_new_tokens=1000, new_token_ids=None):
+    def __init__(
+            self,
+            tokenizer,
+            path,
+            max_length=-1,
+            max_size=-1,
+            chunk_size=8,
+            num_new_tokens=1000,
+            new_token_ids=None,
+            pad_cot=False,
+            max_cot_length=-1,
+            cot_pad_id=None
+    ):
         """
             This dataset precomputes chunk positions for each of the samples in the file_path,
             assigning randomly sampled new_token_ids for each chunk.
@@ -63,8 +75,28 @@ class CoTDatasetChunks(Dataset):
         self.chunk_size = chunk_size
         self.num_new_tokens = num_new_tokens
 
+        self.pad_cot = pad_cot
+        self.max_cot_length = max_cot_length
+        self.cot_pad_id = cot_pad_id
+        if self.cot_pad_id is None:
+            self.cot_pad_id = self.tokenizer.encode("<cot>", add_special_tokens=False)[0]
+            print(f'CoT Pad Id was not provided, using {self.cot_pad_id} corresponding to "<cot>"!')
+
         lines = self._read_lines()
         self.dataset = self._process_examples(lines)
+        if self.pad_cot:
+            emp_max_cot_length = self._compute_max_cot_length()
+            if self.max_cot_length is not None:
+                if emp_max_cot_length > self.max_cot_length:
+                    print(f"""
+                          [WARNING] Specified max_cot_length = {self.max_cot_length} 
+                          is smaller than observed max CoT length = {emp_max_cot_length},
+                          switching to it!!!
+                    """)
+                    self.max_cot_length = emp_max_cot_length
+            else:
+                self.max_cot_length = emp_max_cot_length
+            self._pad_cots()
         
 
     def _read_lines(self):
@@ -77,6 +109,30 @@ class CoTDatasetChunks(Dataset):
                         break
 
         return lines
+
+    def _compute_max_cot_length(self):
+        max_len = 0
+        for item in self.dataset:
+            seps = (item["input_ids"] == self.separator).nonzero(as_tuple=True)[0]
+            if len(seps) >= 2:
+                cot_len = seps[1].item() - seps[0].item() - 1
+                max_len = max(cot_len, max_len)
+        print(f"Empirical max CoT length is {max_len}!")
+        return max_len
+
+    def _pad_cots(self):
+        print(f"Padding CoTs with pad token: {self.cot_pad_id} up to max length: {self.max_cot_length}!")
+        for item in self.dataset:
+            seps = (item["input_ids"] == self.separator).nonzero(as_tuple=True)[0]
+            cot_length = seps[1].item() - seps[0].item() - 1
+            n_cot_pad_ids = self.max_cot_length - cot_length
+
+            if n_cot_pad_ids > 0:
+                item["input_ids"] = torch.cat([
+                    item["input_ids"][:seps[1].item()],
+                    torch.full((n_cot_pad_ids,), self.cot_pad_id, dtype=item["input_ids"].dtype),
+                    item["input_ids"][seps[1].item():]
+                ], dim=0)
         
     def _process_examples(self, lines):
         src_lines, tgt_lines = list(zip(*lines))
