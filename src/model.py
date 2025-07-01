@@ -192,7 +192,7 @@ class ImplicitModel(nn.Module):
                 ids_to_insert
             )
             
-        print(f"[PROFILE] EOS in inputs: {(input_ids == self.tokenizer.eos_token_id)}")
+        #print(f"[PROFILE] EOS in inputs: {(input_ids == self.tokenizer.eos_token_id)}")
         
         first_generation = insert_position
         second_generation = max_new_tokens - insert_position
@@ -235,7 +235,7 @@ class ImplicitModel(nn.Module):
         print(f"[PROFILE] total forward calls: {total_generated}  total forward time: {total_forward_time:.3f}s")
 
         print(f"[PROFILE] num EOS in outputs: {(beam_output == self.tokenizer.eos_token_id).sum(dim=-1)}")
-        print(f"[PROFILE] EOS in outputs: {(beam_output == self.tokenizer.eos_token_id)}")
+        #print(f"[PROFILE] EOS in outputs: {(beam_output == self.tokenizer.eos_token_id)}")
 
         return beam_output
 
