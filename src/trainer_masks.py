@@ -380,8 +380,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         return full_input_ids_new, full_labels_new, full_position_ids_new
     
     def _sample_removal_p(self):
-        if self.contiguous_mask_beta_sampling:
-            a = self.contiguous_mask_beta_sampling_param
+        if self.mask_beta_sampling:
+            a = self.mask_beta_sampling_param
             return random.betavariate(a, a)
         return random.uniform(0, 1)
         
