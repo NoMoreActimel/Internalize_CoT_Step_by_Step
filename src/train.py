@@ -181,6 +181,18 @@ def main():
     # Sample N_tokens_removed for each sample independently
     parser.add_argument('--joint_masked_distribution', action='store_true', default=False)
 
+    parser.add_argument('--mask_beta_sampling', action='store_true', default=False, help="""
+        Sample mask length according to Beta(a, a) instead of U[0, 1]
+                        
+        This has two effects:
+        1. Masks of lengths close to 0 and to N will be selected much more frequently if a -> 0.
+           That is, model will be trained on edge-cases more frequently in any joint masking / removal regime
+        2. For contiguous regimes (random contiguous, left-to-right) it rebalances the probability of maksing tokens in the middle of CoT.
+           When length is sampled uniformly, middle of CoT is getting masked more frequently than its sides.
+           To balance position masking probabilities, we sample length from Beta(a, a). When a -> 0, the distribution becomes more equal.
+    """)
+    parser.add_argument('--mask_beta_sampling_param', type=float, default=0.1)
+
     # Select random tokens in mask to remove (default if removal_type = 'random_masks')
 
     # Select contiguous mask of random length from left-to-right:

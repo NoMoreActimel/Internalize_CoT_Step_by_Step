@@ -27,6 +27,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         # p% of tokens are masked contiguously starting from random pos
         self.random_contiguous_removal = args.random_contiguous_removal
 
+        # default is uniform sampling
+        # works for left-to-right, random contiguous and completely random masks
+        self.mask_beta_sampling = args.mask_beta_sampling
+        self.mask_beta_sampling_param = args.mask_beta_sampling_param
+
         self.removal_p = self.masks_removal_schedule[self.schedule_index][1]
         self.no_cot_stage = self.args.no_cot_stage
         self.no_cot_stage_mask_length = self.args.no_cot_stage_mask_length
@@ -374,6 +379,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         return full_input_ids_new, full_labels_new, full_position_ids_new
     
+    def _sample_removal_p(self):
+        if self.contiguous_mask_beta_sampling:
+            a = self.contiguous_mask_beta_sampling_param
+            return random.betavariate(a, a)
+        return random.uniform(0, 1)
+        
     def _contiguous_truncation(
             self,
             input_ids,
@@ -491,7 +502,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         for batch_idx in range(batch_size):
             if joint_masked_distrubution:
-                removal_p = random.uniform(0, 1)
+                removal_p = self._sample_removal_p()
 
             batch_i = self._contiguous_truncation(
                 input_ids[batch_idx],
@@ -601,7 +612,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         for batch_idx in range(batch_size):
             if joint_masked_distrubution:
-                removal_p = random.uniform(0, 1)
+                removal_p = self._sample_removal_p()
             n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[batch_idx].item()))
 
             cot_start = first_sep_positions[batch_idx] + 1
