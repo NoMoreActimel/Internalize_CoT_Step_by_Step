@@ -9,7 +9,7 @@ from utils import extract_answer, extract_cot
 
 
 class CoTDataset(Dataset):
-    def __init__(self, tokenizer, path, max_length=-1, max_size=-1):
+    def __init__(self, tokenizer, path, max_length=-1, max_size=-1, **kwargs):
         assert os.path.isfile(path), f"Input file path {path} not found"
         print (f'Creating features from dataset file at {path}')
         eos_tok = tokenizer.eos_token
@@ -70,7 +70,7 @@ class CoTDataset(Dataset):
 
 
 class CoTDatasetWithoutTokenization(Dataset):
-    def __init__(self, path, max_size=-1):
+    def __init__(self, path, max_size=-1, **kwargs):
         assert os.path.isfile(path), f"Input file path {path} not found"
         print (f'Creating features from dataset file at {path}')
 

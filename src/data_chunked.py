@@ -53,7 +53,8 @@ class CoTDatasetChunks(Dataset):
             new_token_ids=None,
             pad_cot=False,
             max_cot_length=-1,
-            cot_pad_id=None
+            cot_pad_id=None,
+            **kwargs
     ):
         """
             This dataset precomputes chunk positions for each of the samples in the file_path,

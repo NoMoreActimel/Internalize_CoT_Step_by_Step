@@ -23,7 +23,8 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
             max_size=-1,
             chunk_size=8,
             num_new_tokens=1000,
-            new_token_ids=None
+            new_token_ids=None,
+            **kwargs
     ):
         Dataset.__init__(self)
 
