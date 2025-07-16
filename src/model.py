@@ -34,6 +34,10 @@ class ImplicitModel(nn.Module):
         # In case we insert too many masks and hit the max number of tokens, we need to expand the limits
         self.default_answer_length_limit = default_answer_length_limit
 
+        # Jump token ids in case special tokens are used to mark contiguous removed / masked segments in CoT
+        # Modified externally, together with tokenizer
+        self.jump_token_ids = None
+
         self.split_ids = self.tokenizer.encode(COT_ANSWER_SPLIT_PATTERN, add_special_tokens=False)
         print(f"Model generate with random insertions will use the first of split_ids: {self.split_ids}.")
         if self.split_ids[0] == self.tokenizer.encode(" ", add_special_tokens=False):
