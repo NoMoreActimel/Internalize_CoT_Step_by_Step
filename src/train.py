@@ -107,6 +107,23 @@ def create_jepa_model(config, ref_model, args, device):
     return config, model, model.tokenizer
 
 
+def add_jump_tokens(model, tokenizer, num_jump_tokens):
+    orig_vocab_length = len(tokenizer.get_vocab())
+
+    new_tokens = [f"<JUMP_{i+1}>" for i in range(num_jump_tokens)]
+    num_added_tokens = tokenizer.add_tokens(new_tokens)
+
+    vocab_length = len(tokenizer.get_vocab())
+
+    assert num_added_tokens == num_jump_tokens, "Jump tokens addition failed!"
+    assert orig_vocab_length + num_jump_tokens == vocab_length, "Jump tokens addition failed!"
+
+    jump_token_ids = [id for id in range(orig_vocab_length, vocab_length)]
+    model.base_model.resize_token_embeddings(len(tokenizer))
+    model.jump_token_ids = jump_token_ids
+    return model, tokenizer
+
+
 def parse_tuple_list(arg):
     try:
         pairs = [pair.strip("()").split(",") for pair in arg.split()]
@@ -199,6 +216,12 @@ def main():
     parser.add_argument('--left_to_right_removal', action='store_true', default=False)
     # Select contiguous mask of random length starting from random position 
     parser.add_argument('--random_contiguous_removal', action='store_true', default=False)
+    parser.add_argument('--use_jump_tokens', action='store_true', default=False, help="""
+        Instead of new prompt, use special <JUMP_i> tokens inside chain-of-thoughts.
+    """)
+    parser.add_argument('--num_jump_tokens', type=int, default=256, help="""
+        Number of jump tokens to use, must be >= max CoT length.
+    """)
 
     # Replace the masked tokens with special mask_id (removed by default):
     parser.add_argument('--replace_mask', action='store_true', default=False, help="""
@@ -312,6 +335,9 @@ def main():
         for idx, layer in enumerate(model.base_model.transformer.h):
             if hasattr(layer, "attn"):
                 print(f"Layer {idx + 1}, num attn heads: {layer.attn.num_heads}")
+
+    if args.use_jump_tokens:
+        model, tokenizer = add_jump_tokens(model, tokenizer, num_jump_tokens=args.num_jump_tokens)
 
     # Load Data
     train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)

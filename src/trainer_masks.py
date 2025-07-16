@@ -79,6 +79,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             if not (self.left_to_right_removal or self.random_contiguous_removal):
                 if not self.args.eval_on_contiguous_masks:
                     self.insert_const_ids_func = self.mask_token_insert_func
+        elif self.args.use_jump_tokens:
+            # For contiguous remove, append jump token only
+            self.val_generation_kwargs["insert_const_ids_in_cot"] = True
+            self.insert_const_ids_func = self.sample_jump_token_id
+            self.generative_eval_hooks.append(self.generation_eval_insert_ids_hook)
 
         # Metrics
         additional_metrics = ["removal_p"]
@@ -233,8 +238,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
     def mask_token_insert_func(self, batch, val_removal_p):
         return self.mask_id.clone().detach().unsqueeze(0), 0
 
-    def sample_random_contiguous_mask(self, batch, val_removal_p):
-        input_ids = batch["input_ids"]
+    def _sample_random_contiguous_position(self, input_ids, val_removal_p):
         first_sep_positions, second_sep_positions, eos_positions = self._get_sep_positions(input_ids)
 
         assert self.same_elements(first_sep_positions) \
@@ -245,9 +249,26 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         n_tokens_to_remove = int(np.round(val_removal_p * length.item()))
 
         insert_position = 0 if self.left_to_right_removal else random.choice(torch.arange(0, length - n_tokens_to_remove + 1))
+        return insert_position, n_tokens_to_remove
+    
+    def sample_random_contiguous_mask(self, batch, val_removal_p):
+        input_ids = batch["input_ids"]
+        insert_position, n_tokens_to_remove = self._sample_random_contiguous_position(input_ids, val_removal_p)
         mask_shape = (input_ids.shape[0], n_tokens_to_remove)
         ids_to_insert = torch.full(mask_shape, self.mask_id.item(), dtype=torch.long, device=input_ids.device)
+
+        if self.args.use_jump_tokens:
+            jump_id = self.model.jump_token_ids[n_tokens_to_remove - 1]
+            jump_id_tensor = self._fill_tensor_like_with_last_dim(input_ids, jump_id, 1)
+            ids_to_insert = torch.cat([ids_to_insert, jump_id_tensor], dim=1)
         return ids_to_insert, insert_position
+
+    def sample_jump_token_id(self, batch, val_removal_p):
+        input_ids = batch["input_ids"]
+        insert_position, n_tokens_to_remove = self._sample_random_contiguous_position(input_ids, val_removal_p)
+        jump_id = self.model.jump_token_ids[n_tokens_to_remove - 1]
+        jump_id_tensor = self._fill_tensor_like_with_last_dim(input_ids, jump_id, 1)
+        return jump_id_tensor, insert_position
         
     def process_input_truncation(self, batch, val_removal_p=None):
         input_ids = batch['input_ids']
@@ -343,26 +364,34 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels
 
+    @staticmethod
+    def _fill_tensor_like_with_last_dim(ids, fill_value, last_dim):
+        shape = list(ids.shape)
+        shape[-1] = last_dim
+        fill_tensor = torch.full(size=shape, fill_value=fill_value, dtype=torch.long, device=ids.device)
+        return fill_tensor
+
     def _concat_ids(self, ids, prefix_ids, cot_start, start, end, eos, dim, labels_flag=False):
         ids_to_cat = [ids[..., :cot_start - 1], prefix_ids] # move EOS_TOKEN_ID in prefix
         if cot_start < start:
             ids_to_cat.append(ids[..., cot_start:start])
 
+        if self.args.use_jump_tokens:
+            jump_id = -100 if labels_flag else self.model.jump_token_ids[end - start - 1]
+            jump_id_tensor = self._fill_tensor_like_with_last_dim(ids, jump_id, 1)
+            ids_to_cat.append(jump_id_tensor)
+
         # Otherwise, it is either no_cot_stage without replace_mask (full deletion), or we plug in masks of original length
         if self.args.replace_mask:
             if self.no_cot_stage and self.no_cot_stage_mask_length is not None:
-                        mask_shape = list(ids.shape)
-                        mask_shape[-1] = self.no_cot_stage_mask_length
-                        mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id.item(), dtype=torch.long, device=ids.device)
-                        ids_to_cat.append(mask_tensor)
+                mask_tensor = self._fill_tensor_like_with_last_dim(ids, self.mask_id.item(), self.no_cot_stage_mask_length)
+                ids_to_cat.append(mask_tensor)
             else:
                 if labels_flag and (self.args.replace_mask_in_labels is False):
                     # Recover all COT tokens in labels in case of mask replacement
                     ids_to_cat.append(ids[..., start:end])
                 else:
-                    mask_shape = list(ids.shape)
-                    mask_shape[-1] = (end - start).item()
-                    mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id.item(), dtype=torch.long, device=ids.device)
+                    mask_tensor = self._fill_tensor_like_with_last_dim(ids, self.mask_id.item(), (end - start).item())
                     ids_to_cat.append(mask_tensor)
         
         ids_to_cat.append(ids[..., end:eos + 1])
