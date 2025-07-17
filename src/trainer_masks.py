@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import re
 import random
 import torch
 import tqdm
@@ -73,7 +74,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.insert_const_ids_func = None
         if self.args.replace_mask:
             self.val_generation_kwargs["insert_const_ids_in_cot"] = True
-            self.insert_const_ids_func = self.sample_random_contiguous_mask
+            self.insert_const_ids_func = self.get_contiguous_mask_for_gen_eval
             self.generative_eval_hooks.append(self.generation_eval_insert_ids_hook)
 
             if not (self.left_to_right_removal or self.random_contiguous_removal):
@@ -82,7 +83,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         elif self.args.use_jump_tokens:
             # For contiguous remove, append jump token only
             self.val_generation_kwargs["insert_const_ids_in_cot"] = True
-            self.insert_const_ids_func = self.sample_jump_token_id
+            self.insert_const_ids_func = self.get_jump_for_gen_eval
             self.generative_eval_hooks.append(self.generation_eval_insert_ids_hook)
 
         # Metrics
@@ -250,10 +251,30 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         insert_position = 0 if self.left_to_right_removal else random.choice(torch.arange(0, length - n_tokens_to_remove + 1))
         return insert_position, n_tokens_to_remove
+
+    def _extract_contiguous_mask_positions(self, input_ids):
+        sample = self.tokenizer.batch_decode(input_ids)[0]
+        m = re.search(r'##\s*(.*?)\s*##', sample)
+        removed_part = m.group(1).strip() if m else None
+        removed_part_split = removed_part.split(' ')
+        n_tokens_to_remove = int(removed_part_split[1])
+        insert_position = 0 if self.left_to_right_removal else int(removed_part_split[-1])
+        return insert_position, n_tokens_to_remove
     
-    def sample_random_contiguous_mask(self, batch, val_removal_p):
+    # instead of sampling contiguous mask once again, extract it from input_ids to match the added ## removed ## prefix
+    def get_contiguous_mask_for_gen_eval(self, batch, val_removal_p):
         input_ids = batch["input_ids"]
-        insert_position, n_tokens_to_remove = self._sample_random_contiguous_position(input_ids, val_removal_p)
+        if input_ids.shape[0] != 1:
+            print("\nUsing get_contiguous_mask_for_gen_eval with input_ids.shape[0] > 1,")
+            print("ensure the same mask is applied in process_input_truncation for all samples!\n")
+        
+        if self.no_cot_stage:
+            # no prefix available - sample random mask position
+            insert_position, n_tokens_to_remove = self._sample_random_contiguous_position(input_ids, val_removal_p)
+        else:
+            # mask positions are already in prefix, we need to extract them to be consistent with it
+            insert_position, n_tokens_to_remove = self._extract_contiguous_mask_positions(input_ids)
+
         mask_shape = (input_ids.shape[0], n_tokens_to_remove)
         ids_to_insert = torch.full(mask_shape, self.mask_id.item(), dtype=torch.long, device=input_ids.device)
 
@@ -263,9 +284,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             ids_to_insert = torch.cat([ids_to_insert, jump_id_tensor], dim=1)
         return ids_to_insert, insert_position
 
-    def sample_jump_token_id(self, batch, val_removal_p):
+    def get_jump_for_gen_eval(self, batch, val_removal_p):
         input_ids = batch["input_ids"]
-        insert_position, n_tokens_to_remove = self._sample_random_contiguous_position(input_ids, val_removal_p)
+        if self.no_cot_stage:
+            insert_position, n_tokens_to_remove = self._sample_random_contiguous_position(input_ids, val_removal_p)
+        else:
+            insert_position, n_tokens_to_remove = self._extract_contiguous_mask_positions(input_ids)
         jump_id = self.model.jump_token_ids[n_tokens_to_remove - 1]
         jump_id_tensor = self._fill_tensor_like_with_last_dim(input_ids, jump_id, 1)
         return jump_id_tensor, insert_position
