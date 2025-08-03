@@ -42,6 +42,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             self.val_removal_ps = [0.0, 1.0]
         else:
             self.val_removal_ps = [0.0, 0.5, 0.75, 0.9, 0.95, 1.0]
+            #self.val_removal_ps = [0.95, 0.75, 0.5, 1.0, 0.0]
 
         self.val_truncation_kwargs = {
             "eval_flag": self.joint_masked_distribution
@@ -214,8 +215,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 self.val_generation_kwargs["random_insertion_prob"] = random_insertion_prob
                 self.val_generation_kwargs["insert_const_ids_in_cot"] = insert_const_ids_in_cot
 
+            dataloader = getattr(self, f"{base_name}_dataloader")
             self._evaluate(
-                dataloader=self.val_dataloader,
+                dataloader=dataloader,
                 name=name,
                 truncation_kwargs={"val_removal_p": val_removal_p},
                 generation_kwargs=self.val_generation_kwargs,
@@ -277,6 +279,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         mask_shape = (input_ids.shape[0], n_tokens_to_remove)
         ids_to_insert = torch.full(mask_shape, self.mask_id.item(), dtype=torch.long, device=input_ids.device)
+        #print("[DEBUG PARTIAL EVAL, get_contiguous_mask_for_gen_eval]")
+        #print("sample:", self.tokenizer.batch_decode(input_ids)[0])
+        #print("insert_position:", insert_position)
+        #print("n_tokens_to_remove:", n_tokens_to_remove)
+        #print()
 
         if self.args.use_jump_tokens:
             jump_id = self.model.jump_token_ids[n_tokens_to_remove - 1]

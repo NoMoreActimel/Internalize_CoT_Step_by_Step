@@ -197,7 +197,12 @@ class ImplicitModel(nn.Module):
             )
             
         #print(f"[PROFILE] EOS in inputs: {(input_ids == self.tokenizer.eos_token_id)}")
-        
+       
+        if False:
+            print("\n[PARTIAL REMOVAL DEBUG, MODEL.GENERATE]")
+            print(f"Insert position: {insert_position}")
+            print(f"Ids to insert shape: {ids_to_insert.shape}\n")
+
         first_generation = insert_position
         second_generation = max_new_tokens - insert_position
         if insert_const_ids_in_cot and insert_position > 0:
