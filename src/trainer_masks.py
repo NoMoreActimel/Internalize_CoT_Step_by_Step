@@ -97,9 +97,13 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         step = 0
 
         if self.args.from_pretrained_checkpoint:
-            step = self._resume_checkpoint(self.args.from_pretrained_checkpoint)
+            step = self._resume_checkpoint(
+                self.args.from_pretrained_checkpoint,
+                load_optimizer_state=not self.args.resume_without_optimizer
+            )
 
-        # If JEPA model starts training from plain full-COT model
+        # If JEPA training starts from plain full-COT model
+        # Legacy, use from_pretrained_checkpoint with resume_without_optimizer flag
         if self.args.from_pretrained_fullcot_checkpoint:
             step = self._resume_checkpoint(self.args.from_pretrained_fullcot_checkpoint, load_optimizer_state=False)
 
@@ -214,8 +218,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 self.val_generation_kwargs["random_insertion_prob"] = random_insertion_prob
                 self.val_generation_kwargs["insert_const_ids_in_cot"] = insert_const_ids_in_cot
 
+            dataloader = getattr(self, f"{base_name}_dataloader")
             self._evaluate(
-                dataloader=self.val_dataloader,
+                dataloader=dataloader,
                 name=name,
                 truncation_kwargs={"val_removal_p": val_removal_p},
                 generation_kwargs=self.val_generation_kwargs,

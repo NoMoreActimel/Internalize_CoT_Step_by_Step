@@ -276,8 +276,9 @@ def main():
     parser.add_argument('--save_period', type=int, default=1)
     parser.add_argument('--from_pretrained', type=str, default=None, help="Load model weights only")
     parser.add_argument('--from_pretrained_checkpoint', type=str, default=None, help="Load model weights and optimizer state")
+    parser.add_argument('--resume_without_optimizer', action='store_true', default=False)
 
-    # TRAIN JEPA FROM FULL-COT MODEL
+    # TRAIN JEPA FROM FULL-COT MODEL, EQUIVALENT TO FROM_PRETRAINED_CHECKPOINT + RESUME_WITHOUT_OPTIMIZER, LEGACY:
     parser.add_argument('--from_pretrained_fullcot_checkpoint', type=str, default=None, help="Load ref model weights from full-COT checkpoint")
 
     parser.add_argument('--remove_start_from', type=int, default=0)
@@ -287,7 +288,9 @@ def main():
     parser.add_argument('--flash_attention_2', action='store_true', default=False)
     # pip install flash-attn --no-build-isolation
 
+    # only for step-by-step removal:
     parser.add_argument('--reset_optimizer', action='store_true', default=False)
+
     parser.add_argument('--keep_position', action='store_true', default=False)
     parser.add_argument('--reinitialize_weights', action='store_true', default=False)
 
@@ -365,7 +368,10 @@ def main():
     elif args.mode == "eval":
         step = 0
         if trainer.args.from_pretrained_checkpoint:
-            step = trainer._resume_checkpoint(trainer.args.from_pretrained_checkpoint)
+            step = trainer._resume_checkpoint(
+                trainer.args.from_pretrained_checkpoint,
+                load_optimizer_state=not trainer.args.resume_without_optimizer
+            )
         trainer.evaluate(step=step)
     else:
         raise ValueError(f'args.mode must be either "train" or "eval", found {args.mode}')
