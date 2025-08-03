@@ -98,9 +98,13 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         step = 0
 
         if self.args.from_pretrained_checkpoint:
-            step = self._resume_checkpoint(self.args.from_pretrained_checkpoint)
+            step = self._resume_checkpoint(
+                self.args.from_pretrained_checkpoint,
+                load_optimizer_state=not self.args.resume_without_optimizer
+            )
 
-        # If JEPA model starts training from plain full-COT model
+        # If JEPA training starts from plain full-COT model
+        # Legacy, use from_pretrained_checkpoint with resume_without_optimizer flag
         if self.args.from_pretrained_fullcot_checkpoint:
             step = self._resume_checkpoint(self.args.from_pretrained_fullcot_checkpoint, load_optimizer_state=False)
 
