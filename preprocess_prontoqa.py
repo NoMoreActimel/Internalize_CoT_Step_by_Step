@@ -45,8 +45,6 @@ def preprocess_prontoqa(dataset_path, output_dir, num_train=9000, num_val=200):
                 
         print(f"Wrote preprocessed dataset to {out_path}!")
 
-python run_experiment.py --model-name json --model-size dummy --ordering random --num-trials 10000 --few-shot-examples 0 --ontology fictional --min-hops 5 --max-hops 5 --hops-skip 1
-
 def generate_prontoqa(repo_path, output_path, num_trials=10000):
     cmd = [
         sys.executable,
