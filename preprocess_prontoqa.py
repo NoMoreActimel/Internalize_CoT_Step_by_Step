@@ -50,7 +50,7 @@ def generate_prontoqa(repo_path, output_path, num_trials=10000):
         sys.executable,
         os.path.join(repo_path, "run_experiment.py"),
         "--model-name", "json",
-        "--model-size", "dummy",
+        "--model-size", "0",
         "--ordering", "random",
         "--num-trials", str(num_trials),
         "--few-shot-examples", "0",
