@@ -1,3 +1,5 @@
+import numpy as np
+
 from datasets import load_dataset
 from torch.utils.data import Dataset
 
@@ -35,6 +37,12 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
             max_samples = max_size
         if max_samples is not None and max_size == -1:
             max_size = max_samples
+        
+        # in case we have test split only, split it into val/test if mentioned
+        if split is not None and ";" in split:
+            split, manual_split = split.split(";") # must be e.g. "test;val" or "test;test"
+        else:
+            manual_split = None
 
         # proper datasets.load_dataset call:
         if max_samples is None:
@@ -57,9 +65,28 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
         self.chunk_size = chunk_size
         self.num_new_tokens = num_new_tokens
 
+        if manual_split:
+            self.split_manually(manual_split, split_seed=shuffle_seed)
+
         lines = self._read_lines()
         lines = self._format_answers(lines)
         self.dataset = self._process_examples(lines)
+    
+    def split_manually(self, manual_split, split_seed):
+        if manual_split not in ("val", "test"):
+            raise ValueError(f"Manual split must be one of 'val' or 'test', found {manual_split}")
+
+        rng = np.random.default_rng(split_seed)
+        indices = np.arange(len(self.dataset))
+        rng.shuffle(indices)
+
+        half = n // 2
+        if manual_split == "val":
+            selected_indices = indices[:half]
+        else:  # manual_split == "test"
+            selected_indices = indices[half:]
+
+        self.dataset = [self.dataset[i] for i in selected_indices]
     
     def _format_answers(self, lines):
         new_lines = []
