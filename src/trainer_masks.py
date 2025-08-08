@@ -321,15 +321,15 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 compute_full_input_ids=self.jepa_training
             )
 
-        if self.removal_p == 0.0 and (not self.joint_masked_distribution):
-            batch = {
-                "input_ids": input_ids,
-                "labels": labels,
-                "full_input_ids": input_ids.clone(),
-                "full_labels": labels.clone(),
-                "position_ids": None
-            }
-            return batch, False
+        # if self.removal_p == 0.0 and (not self.joint_masked_distribution):
+        #     batch = {
+        #         "input_ids": input_ids,
+        #         "labels": labels,
+        #         "full_input_ids": input_ids.clone(),
+        #         "full_labels": labels.clone(),
+        #         "position_ids": None
+        #     }
+        #     return batch, False
 
         if self.left_to_right_removal or self.random_contiguous_removal:
             return self.contiguous_truncation(
