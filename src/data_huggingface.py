@@ -66,7 +66,8 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
         self.num_new_tokens = num_new_tokens
 
         if manual_split:
-            self.split_manually(manual_split, split_seed=shuffle_seed)
+            split_seed = shuffle_seed if shuffle_seed is not None else 1
+            self.split_manually(manual_split, split_seed=split_seed)
 
         lines = self._read_lines()
         lines = self._format_answers(lines)
