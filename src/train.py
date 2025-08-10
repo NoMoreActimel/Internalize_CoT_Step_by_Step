@@ -275,7 +275,12 @@ def main():
     parser.add_argument('--truncation', type=int, default=-1)
     parser.add_argument('--max_len_train', type=int, default=-1)
     parser.add_argument('--max_new_tokens', type=int, default=800)
+
     parser.add_argument('--max_size', type=int, default=-1)
+    parser.add_argument('--train_max_size', type=int, default=None)
+    parser.add_argument('--val_max_size', type=int, default=None)
+    parser.add_argument('--test_max_size', type=int, default=None)
+
     parser.add_argument('--save_model', type=str, required=True)
     parser.add_argument('--save_period', type=int, default=1)
     parser.add_argument('--from_pretrained', type=str, default=None, help="Load model weights only")
