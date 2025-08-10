@@ -21,6 +21,8 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     else:
         dataset_kwargs["path"] = getattr(args, f"{split}_path")
     
+    if ";" in split:
+        split = split.split(";")[1]
     split_max_size = getattr(args, f"{split}_max_size")
     default_max_size = args.max_size if split == "train" else -1
     dataset_kwargs["max_size"] = default_max_size if split_max_size is None else split_max_size
