@@ -143,9 +143,6 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
         n = len(self.dataset)
         idx = np.random.default_rng(self.split_random_state).permutation(n)
 
-        def num(x, total):  # float => fraction, int => count
-            return  if isinstance(x, float) else max(0, min(int(x), total))
-
         n_test = int(np.floor(self.test_size * n))
         rel_val = self.val_size / (1 - self.test_size)
         n_val = int(np.floor(rel_val * (n - n_test)))
