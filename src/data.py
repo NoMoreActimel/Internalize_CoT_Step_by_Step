@@ -55,7 +55,7 @@ def load_data(args, tokenizer, new_token_ids=None):
     val_dataset, collate_fn = get_data_classes(args, tokenizer, new_token_ids, split=args.val_split)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=False)
 
-    if args.test_path:
+    if args.test_path or (args.huggingface_dataset and args.test_split != args.val_split):
         test_dataset, collate_fn = get_data_classes(args, tokenizer, new_token_ids, split=args.test_split)
         test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=False)
         return train_dataloader, val_dataloader, test_dataloader
