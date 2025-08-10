@@ -75,6 +75,7 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
             test_size=0.1,
             split_random_state=42,
             filter_max_str_length=None,
+            filter_min_str_length=None,
             filter_key="answer",
             **kwargs
             ):
@@ -89,7 +90,7 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
         self._preprocess_format()
         
         if filter_max_str_length is not None:
-            self.filter_max_length(filter_max_str_length, filter_key)
+            self.filter_length(filter_min_str_length, filter_max_str_length, filter_key)
 
         self.split_train_val_test = split_train_val_test
         self.val_size = val_size
@@ -105,23 +106,19 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
     def _filter_correct(self):
         pass
     
-    def filter_max_length(self, max_str_length, key):
+    def filter_length(self, min_str_length, max_str_length, key):
         dataset_size = len(self.dataset)
         new_dataset = []
         for sample in self.dataset:
-            if len(sample[key]) <= max_str_length:
-                new_dataset.append(sample)
+            if (max_str_length is None) or (len(sample[key]) <= max_str_length):
+                if (min_str_length is None) or (len(sample[key]) >= min_str_length):
+                    new_dataset.append(sample)
         self.dataset = new_dataset
 
         print(f' \
-            Filtered dataset by key="{key}" sequence max_length="{max_str_length}", \
+            Filtered dataset by key="{key}" string min_length="{min_str_length} and max_length="{max_str_length}", \
             size reduced from {dataset_size} to {len(self.dataset)} samples! \
         ')
-        # new_dataset_dict = {
-        #     key: [sample[key] for sample in new_dataset]
-        #     for key in new_dataset[0].keys()
-        # }
-        # self.dataset = HFDataset.from_dict(new_dataset_dict)
     
     def _train_val_test_split(self):
         train_plus_val, test = train_test_split(
@@ -141,9 +138,23 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
         print(f"Split data into: train: {len(train)}, val: {len(val)}, test: {len(test)}")
         return train, val, test
 
+    def write_lines(self, output_dir):
+        if self.split_train_val_test:
+            datasets = [self.train, self.val, self.test]
+            paths = [f"{output_dir}/train.txt", f"{output_dir}/valid.txt", f"{output_dir}/test.txt"]
+        else:
+            datasets = [self.dataset]
+            paths = [f"{output_dir}/train.txt"]
+        
+        os.makedirs(output_dir, exist_ok=True)
+        for dataset, path in zip(datasets, paths):
+            with open(path, 'w') as f:
+                for item in dataset:
+                    f.write(f'{item["question"]}||{item["answer"]}')
+            print(f"Wrote formatted dataset into {path}!")
 
 
-class OpenMathDataset(HuggingFacePreprocessDataset):
+class OpenR1MathDataset(HuggingFacePreprocessDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -183,20 +194,31 @@ class OpenMathDataset(HuggingFacePreprocessDataset):
             size reduced from {dataset_size} to {len(self.dataset)} samples! \
         ')
     
-    def write_lines(self, output_dir):
-        if self.split_train_val_test:
-            datasets = [self.train, self.val, self.test]
-            paths = [f"{output_dir}/train.txt", f"{output_dir}/valid.txt", f"{output_dir}/test.txt"]
-        else:
-            datasets = [self.dataset]
-            paths = [f"{output_dir}/train.txt"]
-        
-        os.makedirs(output_dir, exist_ok=True)
-        for dataset, path in zip(datasets, paths):
-            with open(path, 'w') as f:
-                for item in dataset:
-                    f.write(f'{item["question"]}||{item["answer"]}')
-            print(f"Wrote formatted dataset into {path}!")
+
+class OpenMathInstructDataset(HuggingFacePreprocessDataset):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        mean_length = 0
+        max_length = 0
+        for i, sample in enumerate(self.dataset):
+            mean_length += len(sample['answer'])
+            max_length = max(max_length, len(sample['answer']))
+
+        print("-" * 30)
+        print("Final dataset size:", len(self.dataset))
+        print("Mean length:", mean_length / len(self.dataset))
+        print("Max length:", max_length)
+        print("-" * 60)
+    
+    def _preprocess_format(self):
+        items = []
+        for item in self.dataset:
+            items.append({
+                "question": item['problem'],
+                "answer": f"{item['generated_solution']} #### {item['expected_answer']}"
+            })
+        self.dataset = items
 
 
 def main():
@@ -221,6 +243,7 @@ def main():
 
     # filtering
     parser.add_argument('--filter_max_str_length', type=int, default=None, help="drop samples whose `--filter_key` is longer")
+    parser.add_argument('--filter_min_str_length', type=int, default=None, help="drop samples whose `--filter_key` is shorter")
     parser.add_argument('--filter_key', type=str, default="answer", help="which field to check length against")
 
     # output
@@ -242,10 +265,16 @@ def main():
         "test_size":            args.test_size,
         "split_random_state":   args.split_random_state,
         "filter_max_str_length":args.filter_max_str_length,
+        "filter_min_str_length":args.filter_min_str_length,
         "filter_key":           args.filter_key,
     }
 
-    ds = OpenMathDataset(**ds_kwargs)
+    if args.path == "nvidia/OpenMathInstruct-2":
+        ds = OpenMathInstructDataset(**ds_kwargs)
+    elif args.path == "open-r1/OpenR1-Math-220k":
+        ds = OpenR1MathDataset(**ds_kwargs)
+    else:
+        raise ValueError
     ds.write_lines(args.output_dir)
 
 
