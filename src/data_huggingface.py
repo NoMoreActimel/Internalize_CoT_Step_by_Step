@@ -81,7 +81,7 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
         indices = np.arange(len(self.dataset))
         rng.shuffle(indices)
 
-        half = n // 2
+        half = len(self.dataset) // 2
         if manual_split == "val":
             selected_indices = indices[:half]
         else:  # manual_split == "test"
