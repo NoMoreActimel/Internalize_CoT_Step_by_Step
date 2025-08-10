@@ -1,9 +1,10 @@
 import argparse
+import numpy as np
 import os
 
 from datasets import load_dataset
 from torch.utils.data import Dataset as TorchDataset
-from sklearn.model_selection import train_test_split
+# from sklearn.model_selection import train_test_split
 
 
 class HuggingFaceDataset(TorchDataset):
@@ -28,9 +29,9 @@ class HuggingFaceDataset(TorchDataset):
             dataset = load_dataset(path, name=name, split=split, data_files=data_files)
             if shuffle:
                 if shuffle_seed is not None:
-                    dataset = dataset.shuffle(shuffle_seed)
+                    dataset = dataset.shuffle(seed=shuffle_seed)
                 else:
-                    dataset.shuffle()
+                    dataset = dataset.shuffle()
             
             self.dataset = dataset.select(range(max_samples))
         else:
@@ -120,23 +121,46 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
             size reduced from {dataset_size} to {len(self.dataset)} samples! \
         ')
     
-    def _train_val_test_split(self):
-        train_plus_val, test = train_test_split(
-            self.dataset,
-            test_size=self.test_size,
-            random_state=self.split_random_state
-        )
-        # Now split train+val into TRAIN and VAL
-        # we want val_size fraction *of the original*, so relative val on train_plus_val is:
-        rel_val_size = self.val_size / (1.0 - self.test_size)
-        train, val = train_test_split(
-            train_plus_val,
-            test_size=rel_val_size,
-            random_state=self.split_random_state
-        )
+    # def _train_val_test_split(self):
+    #     train_plus_val, test = train_test_split(
+    #         self.dataset,
+    #         test_size=self.test_size,
+    #         random_state=self.split_random_state
+    #     )
+    #     # Now split train+val into TRAIN and VAL
+    #     # we want val_size fraction *of the original*, so relative val on train_plus_val is:
+    #     rel_val_size = self.val_size / (1.0 - self.test_size)
+    #     train, val = train_test_split(
+    #         train_plus_val,
+    #         test_size=rel_val_size,
+    #         random_state=self.split_random_state
+    #     )
 
+    #     print(f"Split data into: train: {len(train)}, val: {len(val)}, test: {len(test)}")
+    #     return train, val, test
+    
+    def _train_val_test_split(self):
+        n = len(self.dataset)
+        idx = np.random.default_rng(self.split_random_state).permutation(n)
+
+        def num(x, total):  # float => fraction, int => count
+            return  if isinstance(x, float) else max(0, min(int(x), total))
+
+        n_test = int(np.floor(self.test_size * n))
+        rel_val = self.val_size / (1 - self.test_size)
+        n_val = int(np.floor(rel_val * (n - n_test)))
+
+        def take(ids):
+            if hasattr(self.dataset, "select"):
+                return self.dataset.select(ids.tolist())
+            return [self.dataset[i] for i in ids]
+
+        test = take(idx[:n_test])
+        val = take(idx[n_test:n_test + n_val])
+        train = take(idx[n_test + n_val:])
         print(f"Split data into: train: {len(train)}, val: {len(val)}, test: {len(test)}")
         return train, val, test
+
 
     def write_lines(self, output_dir):
         if self.split_train_val_test:
