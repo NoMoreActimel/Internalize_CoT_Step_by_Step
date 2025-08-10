@@ -8,7 +8,7 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     dataset_kwargs = {}
 
     if args.huggingface_dataset:
-        assert args.removal_type == 'random-chunks' or args.removal_type == 'random-masks'
+        # assert args.removal_type == 'random-chunks' or args.removal_type == 'random-masks'
         dataset_kwargs["path"] = args.path
         dataset_kwargs["name"] = args.name
         dataset_kwargs["split"] = split
@@ -24,13 +24,14 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     split_max_size = getattr(args, f"{split}_max_size")
     default_max_size = args.max_size if split == "train" else -1
     dataset_kwargs["max_size"] = default_max_size if split_max_size is None else split_max_size
-    
+
     dataset_kwargs["max_length"] = args.max_len_train
 
     dataset_kwargs["pad_cot"] = args.pad_cot
     dataset_kwargs["max_cot_length"] = args.max_cot_length
     dataset_kwargs["cot_pad_id"] = args.cot_pad_id
 
+    # In case of huggingface dataset, always use our CoTChunksHFDataset instead of native iCoT one
     hf_sbs_flag = (args.removal_type == 'step-by-step') and args.huggingface_dataset
 
     if args.removal_type == 'step-by-step' and not hf_sbs_flag:
