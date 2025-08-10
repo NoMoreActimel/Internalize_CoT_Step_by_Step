@@ -28,10 +28,12 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     dataset_kwargs["max_cot_length"] = args.max_cot_length
     dataset_kwargs["cot_pad_id"] = args.cot_pad_id
 
-    if args.removal_type == 'step-by-step':
+    hf_sbs_flag = (args.removal_type == 'step-by-step') and args.huggingface_dataset
+
+    if args.removal_type == 'step-by-step' and not hf_sbs_flag:
         DatasetClass = CoTDataset
         CollateClass = CoTDataCollator
-    elif args.removal_type == 'random-chunks' or args.removal_type == 'random-masks':
+    elif args.removal_type == 'random-chunks' or args.removal_type == 'random-masks' or hf_sbs_flag:
         DatasetClass = CoTChunksHFDataset if args.huggingface_dataset else CoTDatasetChunks
         CollateClass = CoTDataCollatorChunks
 
