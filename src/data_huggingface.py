@@ -87,7 +87,7 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
         else:  # manual_split == "test"
             selected_indices = indices[half:]
 
-        self.dataset = [self.dataset[i] for i in selected_indices]
+        self.dataset = [self.dataset[int(i)] for i in selected_indices]
     
     def _format_answers(self, lines):
         new_lines = []
