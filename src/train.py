@@ -48,13 +48,15 @@ def create_model(args, device):
         model = ImplicitModel(
             config,
             reinitialize_weights=args.train_from_scratch,
-            use_flash_attention=args.flash_attention_2
+            use_flash_attention=args.flash_attention_2,
+            use_peft=args.use_peft
         ).to(device)
     else:
         print (f'Loading from {args.from_pretrained}')
         model = ImplicitModel.from_pretrained(
             args.from_pretrained,
-            use_flash_attention=args.flash_attention_2
+            use_flash_attention=args.flash_attention_2,
+            use_peft=args.use_peft
         ).to(device)
         config = model.config
 
@@ -82,7 +84,8 @@ def create_jepa_model(config, ref_model, args, device):
             ref_model_update_decay=args.ref_model_update_decay,
             logits_loss_on_full_cot=args.logits_loss_on_full_cot,
             reinitialize_weights=args.train_from_scratch,
-            use_flash_attention=args.flash_attention_2
+            use_flash_attention=args.flash_attention_2,
+            use_peft=args.use_peft
         ).to(device)
     else:
         print (f'Loading from {args.from_pretrained}')
@@ -93,7 +96,8 @@ def create_jepa_model(config, ref_model, args, device):
             ref_model_update_decay=args.ref_model_update_decay,
             logits_loss_on_full_cot=args.logits_loss_on_full_cot,
             reinitialize_weights=False,
-            use_flash_attention=args.flash_attention_2
+            use_flash_attention=args.flash_attention_2,
+            use_peft=args.use_peft
         ).to(device)
         state_dict = torch.load(os.path.join(args.from_pretrained, 'state_dict.bin'))
         model.load_state_dict(state_dict, strict=True)
@@ -284,9 +288,12 @@ def main():
     parser.add_argument('--remove_start_from', type=int, default=0)
     parser.add_argument('--seed', type=int, default=1234)
     parser.add_argument('--max_grad_norm', type=float, default=1.0)
+    
+    # does not work with jepa training, uses default lora config in src/model.py
+    parser.add_argument('--use_peft', action='store_true', default=False)
 
-    parser.add_argument('--flash_attention_2', action='store_true', default=False)
     # pip install flash-attn --no-build-isolation
+    parser.add_argument('--flash_attention_2', action='store_true', default=False)
 
     # only for step-by-step removal:
     parser.add_argument('--reset_optimizer', action='store_true', default=False)

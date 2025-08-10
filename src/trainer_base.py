@@ -3,8 +3,10 @@ import tqdm
 import torch
 
 from accelerate import Accelerator
-from utils import get_sep_position, extract_answer
 from writer import WanDBWriter, MetricTracker
+from transformers.utils import is_peft_available
+
+from utils import get_sep_position, extract_answer
 
 class BaseTrainer:
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args):
@@ -230,15 +232,23 @@ class BaseTrainer:
         state = {
             "arch": arch,
             "epoch": epoch,
-            "state_dict": unwrapped_model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "config": self.config,
         }
 
-        if hasattr(self.model, "ref_model"):
-            state["ref_state_dict"] = unwrapped_model.ref_model.state_dict()
+        if getattr(unwrapped_model, "use_peft", False):
+            assert is_peft_available()
+            state["state_dict"] = unwrapped_model.base_model.get_peft_model_state_dict()
+            # state["peft_config"] = unwrapped_model.peft_config
+        else:
+            state["state_dict"] = unwrapped_model.state_dict()
+            if hasattr(self.model, "ref_model"):
+                state["ref_state_dict"] = unwrapped_model.ref_model.state_dict()
 
-        filename = str(self.args.save_model + "/checkpoint-epoch{}.pth".format(epoch))
+        if getattr(unwrapped_model, "use_peft", False):
+            filename = str(self.args.save_model + "/checkpoint-epoch{}-adapter.pth".format(epoch))
+        else:
+            filename = str(self.args.save_model + "/checkpoint-epoch{}.pth".format(epoch))
 
         if not (only_best and save_best):
             torch.save(state, filename)
@@ -268,18 +278,23 @@ class BaseTrainer:
                 "of checkpoint. This may yield an exception while state_dict is being loaded."
             )
         
-        if not getattr(self, "jepa_training", False):
-            unwrapped_model.load_state_dict(checkpoint["state_dict"])
+        if getattr(unwrapped_model, "use_peft", False):
+            # unwrapped_model.set_peft_config(checkpoint["peft_config"])
+            unwrapped_model.become_peft_model()
+            set_peft_model_state_dict(unwrapped_model, checkpoint["state_dict"])
         else:
-            unwrapped_model.load_state_dict(checkpoint["state_dict"], strict=False)
-            if "ref_state_dict" in checkpoint:
-                unwrapped_model.ref_model.load_state_dict(checkpoint["ref_state_dict"])
-                print("Loaded ref_model from the previous ref_state_dict!")
+            if not getattr(self, "jepa_training", False):
+                unwrapped_model.load_state_dict(checkpoint["state_dict"])
             else:
-                unwrapped_model.ref_model.load_state_dict(checkpoint["state_dict"])
-                print("Loaded ref_model from the default model's state_dict!")
-            unwrapped_model.ref_model.eval()
-        
+                unwrapped_model.load_state_dict(checkpoint["state_dict"], strict=False)
+                if "ref_state_dict" in checkpoint:
+                    unwrapped_model.ref_model.load_state_dict(checkpoint["ref_state_dict"])
+                    print("Loaded ref_model from the previous ref_state_dict!")
+                else:
+                    unwrapped_model.ref_model.load_state_dict(checkpoint["state_dict"])
+                    print("Loaded ref_model from the default model's state_dict!")
+                unwrapped_model.ref_model.eval()
+            
         if load_optimizer_state:
             # load optimizer state from checkpoint only when optimizer type is not changed.
             if checkpoint["config"].get("optimizer", "") != self.config.get("optimizer", ""):

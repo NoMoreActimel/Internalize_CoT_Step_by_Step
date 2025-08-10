@@ -16,7 +16,8 @@ class JEPAImplicitModel(ImplicitModel):
             ref_model_update_decay=0.999,
             logits_loss_on_full_cot=False,
             reinitialize_weights=False,
-            use_flash_attention=False
+            use_flash_attention=False,
+            use_peft=False
     ):
         """
             The model is assumed to be trained on partially corrupted COT data,
@@ -25,7 +26,7 @@ class JEPAImplicitModel(ImplicitModel):
             That is, reference model is pretrained on original COT data: [query] [........COT........] [answer]
             While this model is trained on partially masked COT data:    [query] [M..MM...MMM...MMMMM] [answer]
         """
-        super().__init__(config, reinitialize_weights, use_flash_attention)
+        super().__init__(config, reinitialize_weights, use_flash_attention, use_peft)
         self.alpha_logits_loss = alpha_logits_loss
         self.ref_model_update_decay = ref_model_update_decay
         self.logits_loss_on_full_cot = logits_loss_on_full_cot

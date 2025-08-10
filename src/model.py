@@ -7,14 +7,18 @@ import torch.nn as nn
 from torch.nn import CrossEntropyLoss
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteriaList, GenerationConfig, LogitsProcessorList
+from transformers.utils import is_peft_available
 import sys
 import warnings
 
 from configuration_model import ImplicitModelConfig
 from utils import get_sep_position, DoubleEOSStoppingCriteria, DoubleEOSLogitsProcessor, COT_ANSWER_SPLIT_PATTERN
 
+if is_peft_available():
+    from peft import LoraConfig, PeftConfig, PeftModel, TaskType, get_peft_model
+
 class ImplicitModel(nn.Module):
-    def __init__(self, config, reinitialize_weights=False, use_flash_attention=False, default_answer_length_limit=20):
+    def __init__(self, config, reinitialize_weights=False, use_flash_attention=False, use_peft=False, default_answer_length_limit=20):
         super().__init__()
 
         self.config = config
@@ -27,6 +31,10 @@ class ImplicitModel(nn.Module):
         if reinitialize_weights:
             print ('Reinitializing model weights!')
             self.base_model.apply(self.base_model._init_weights)
+        
+        self.use_peft = use_peft
+        if self.use_peft:
+            self.become_peft_model()
         
         self.tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_name)
 
@@ -42,6 +50,28 @@ class ImplicitModel(nn.Module):
         print(f"Model generate with random insertions will use the first of split_ids: {self.split_ids}.")
         if self.split_ids[0] == self.tokenizer.encode(" ", add_special_tokens=False):
             warnings.warn(f"Model's tokenizer encodes split_ids so that the first token is equivalent to space, do no use random insertions!")
+    
+    def become_peft_model(self):
+        if getattr(self, "peft_config", None) is None:
+            self.peft_config = self.get_peft_config()
+        self.base_model = get_peft_model(self.base_model, self.peft_config)
+        self.base_model.print_trainable_parameters()
+    
+    def set_peft_config(self, peft_config):
+        self.peft_config = peft_config
+
+    def get_peft_config(self):
+        return LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            inference_mode=False,
+            r=4,
+            lora_alpha=4,
+            lora_dropout=0.0,
+            target_modules=[
+                "q_proj", "k_proj", "v_proj", "o_proj",
+                "gate_proj", "up_proj", "down_proj"
+            ],
+        )
 
     def forward(self, input_ids, position_ids=None, output_attentions=False):
         if position_ids is not None:
@@ -551,9 +581,18 @@ class ImplicitModel(nn.Module):
         return logits_processor, stopping_criteria
         
     @classmethod
-    def from_pretrained(self, pretrained_path, use_flash_attention=False):
+    def from_pretrained(self, pretrained_path, use_flash_attention=False, use_peft=False):
         config = ImplicitModelConfig.from_pretrained(pretrained_path)
-        model = ImplicitModel(config, reinitialize_weights=False, use_flash_attention=use_flash_attention)
+        model = ImplicitModel(config, reinitialize_weights=False, use_flash_attention=use_flash_attention, use_peft=False)
+        
+        if use_peft == True:
+            adapter_path = pretrained_path.rsplit('.', 1)[0] + "-adapter.pth"
+            model.base_model = PeftModel.from_pretrained(model.base_model, adapter_path)
+            model.base_model.print_trainable_parameters()
+            model.peft_config = PeftConfig.from_pretrained(adapter_path)
+            model.use_peft = True
+            return model
+
         state_dict = torch.load(os.path.join(pretrained_path, 'state_dict.bin'))
         model.load_state_dict(state_dict, strict=True)
         return model
@@ -561,5 +600,11 @@ class ImplicitModel(nn.Module):
     def save_pretrained(self, save_directory):
         print (f'Saving to {save_directory}')
         self.config.save_pretrained(save_directory)
+
+        if self.use_peft:
+            adapter_path = save_directory.rsplit('.', 1)[0] + "-adapter.pth"
+            self.base_model.save_pretrained(adapter_dir)
+            return
+
         state_dict = self.state_dict()
         torch.save(state_dict, os.path.join(save_directory, 'state_dict.bin'))
