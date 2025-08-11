@@ -46,6 +46,7 @@ class CoTDatasetChunks(Dataset):
             self,
             tokenizer,
             path,
+            json_dataset,
             max_length=-1,
             max_size=-1,
             chunk_size=8,
@@ -69,6 +70,8 @@ class CoTDatasetChunks(Dataset):
         
         self.eos_tok = self.tokenizer.eos_token
         self.separator = tokenizer.eos_token_id
+
+        self.json_dataset = json_dataset
 
         self.file_path = path
         self.max_length = max_length
@@ -101,6 +104,9 @@ class CoTDatasetChunks(Dataset):
         
 
     def _read_lines(self):
+        if self.json_dataset:
+            return self._read_json_lines()
+        
         with open(self.file_path, encoding="utf-8") as f:
             lines = []
             for line in f.readlines():
@@ -109,6 +115,24 @@ class CoTDatasetChunks(Dataset):
                     if self.max_size > 0 and len(lines) >= self.max_size:
                         break
 
+        return lines
+
+    def _read_json_lines(self):
+        """ Dataset stored as json: list of dicts with "question" and "answer" fields. """
+        with open(self.file_path, encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, list):
+            raise ValueError("JSON must be a list of dicts.")
+
+        lines = []
+        for item in data:
+            q = item.get("question")
+            a = item.get("answer")
+            if isinstance(q, str) and isinstance(a, str) and q.strip() and a.strip():
+                lines.append((q, a))
+                if self.max_size > 0 and len(lines) >= self.max_size:
+                    break
         return lines
 
     def _compute_max_cot_length(self):

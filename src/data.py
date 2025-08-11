@@ -34,15 +34,16 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     dataset_kwargs["cot_pad_id"] = args.cot_pad_id
 
     # In case of huggingface dataset, always use our CoTChunksHFDataset instead of native iCoT one
-    hf_sbs_flag = (args.removal_type == 'step-by-step') and args.huggingface_dataset
+    ours_sbs_flag = (args.removal_type == 'step-by-step') and (args.huggingface_dataset or args.json_dataset)
 
-    if args.removal_type == 'step-by-step' and not hf_sbs_flag:
+    if args.removal_type == 'step-by-step' and not ours_sbs_flag:
         DatasetClass = CoTDataset
         CollateClass = CoTDataCollator
-    elif args.removal_type == 'random-chunks' or args.removal_type == 'random-masks' or hf_sbs_flag:
+    elif args.removal_type == 'random-chunks' or args.removal_type == 'random-masks' or ours_sbs_flag:
         DatasetClass = CoTChunksHFDataset if args.huggingface_dataset else CoTDatasetChunks
         CollateClass = CoTDataCollatorChunks
 
+        dataset_kwargs["json_dataset"] = args.json_dataset
         dataset_kwargs["chunk_size"] = args.chunk_size if args.removal_type == 'random-chunks' else None
         dataset_kwargs["num_new_tokens"] = args.num_new_tokens if args.removal_type == 'random-chunks' else 0
         dataset_kwargs["new_token_ids"] = new_token_ids if args.removal_type == 'random-chunks' else None
