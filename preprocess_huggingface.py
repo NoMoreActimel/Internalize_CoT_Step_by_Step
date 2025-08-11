@@ -299,6 +299,7 @@ def main():
         "filter_max_str_length":args.filter_max_str_length,
         "filter_min_str_length":args.filter_min_str_length,
         "filter_key":           args.filter_key,
+        "json_dataset":         args.json_dataset
     }
 
     if args.path == "nvidia/OpenMathInstruct-2":
