@@ -1,4 +1,5 @@
 import argparse
+import json
 import numpy as np
 import os
 
@@ -78,6 +79,7 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
             filter_max_str_length=None,
             filter_min_str_length=None,
             filter_key="answer",
+            json_dataset=False,
             **kwargs
             ):
         super().__init__(
@@ -97,6 +99,8 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
         self.val_size = val_size
         self.test_size = test_size
         self.split_random_state = split_random_state
+
+        self.json_dataset = json_dataset
         
         if self.split_train_val_test:
             self.train, self.val, self.test = self._train_val_test_split()
@@ -160,18 +164,23 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
 
 
     def write_lines(self, output_dir):
+        ext = "json" if self.json_dataset else "txt"
         if self.split_train_val_test:
             datasets = [self.train, self.val, self.test]
-            paths = [f"{output_dir}/train.txt", f"{output_dir}/valid.txt", f"{output_dir}/test.txt"]
+            paths = [f"{output_dir}/train.{ext}", f"{output_dir}/valid.{ext}", f"{output_dir}/test.{ext}"]
         else:
             datasets = [self.dataset]
-            paths = [f"{output_dir}/train.txt"]
+            paths = [f"{output_dir}/train.{ext}"]
         
         os.makedirs(output_dir, exist_ok=True)
         for dataset, path in zip(datasets, paths):
-            with open(path, 'w') as f:
-                for item in dataset:
-                    f.write(f'{item["question"]}||{item["answer"]}')
+            if self.json_dataset:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(dataset, f, ensure_ascii=False)
+            else:
+                with open(path, 'w') as f:
+                    for item in dataset:
+                        f.write(f'{item["question"]}||{item["answer"]}')
             print(f"Wrote formatted dataset into {path}!")
 
 
@@ -255,6 +264,8 @@ def main():
     parser.add_argument('--max_samples', type=int, default=None, help="truncate to N samples before filtering")
     parser.add_argument('--shuffle', action='store_true', help="shuffle before truncation")
     parser.add_argument('--shuffle_seed', type=int, default=None)
+
+    parser.add_argument('--json_dataset', action='store_true')
 
     # train/test‐split args
     parser.add_argument('--split_train_val_test', action='store_true', help="perform train / val / test split via sklearn")
