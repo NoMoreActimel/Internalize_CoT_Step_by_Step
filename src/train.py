@@ -154,7 +154,7 @@ def main():
     parser.add_argument('--name', type=str, default=None)
     parser.add_argument('--train_split', type=str, default="train")
     parser.add_argument('--val_split', type=str, default="val")
-    parser.add_argument('--test_split', type=str, default="test")
+    parser.add_argument('--test_split', type=str, default=None)
     parser.add_argument(
         '--json_dataset', action='store_true',
         help="Whether dataset is stored in .json (list of dicts with question/answer fields), default is row-wise .txt"
