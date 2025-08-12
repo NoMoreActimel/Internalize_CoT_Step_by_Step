@@ -33,6 +33,25 @@ class BaseTrainer:
         self.writer = None
         self.metrics_tracker = None
 
+        self.best_val_metric_type = self.args.best_val_metric
+        self.best_val_metric = 0.0
+
+    def check_best(self, acc, tok_acc, ppl):
+        save_best = False
+        if self.best_val_metric_type == "accuracy":
+            if acc > self.best_val_metric:
+                self.best_val_metric = acc
+                save_best = True
+        elif self.best_val_metric_type == "token-accuracy":
+            if tok_acc > self.best_val_metric:
+                self.best_val_metric = tok_acc
+                save_best = True
+        elif self.best_val_metric_type == "perplexity":
+            if ppl > self.best_val_metric:
+                self.best_val_metric = ppl
+                save_best = True
+        return save_best
+
     def setup_metrics(self, additional_metrics=None):
         if self.args.wandb_project:
             self.writer = WanDBWriter(self.args)
@@ -216,10 +235,10 @@ class BaseTrainer:
         print (f'Evaluation on part: {name}; PPL: {ppl}; Accuracy: {accuracy}; Token Accuracy: {token_accuracy}.')
         return accuracy, token_accuracy, ppl
 
-    def save_epoch(self, epoch):
+    def save_epoch(self, epoch, save_best=False):
         if epoch % self.args.save_period == 0 or epoch == self.args.epochs - 1:
             # self.model.save_pretrained(os.path.join(self.args.save_model, f'checkpoint_{epoch}'))
-            self._save_checkpoint(epoch, save_best=True, only_best=False)
+            self._save_checkpoint(epoch, save_best=save_best, only_best=False)
 
     def _save_checkpoint(self, epoch, save_best=False, only_best=False):
         if not self.accelerator.is_main_process:

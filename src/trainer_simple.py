@@ -92,13 +92,14 @@ class SimpleTrainer(BaseTrainer):
             if self.accelerator.is_main_process and self.writer:
                 self.writer.set_step(step, mode="val")
             
-            self.evaluate(
+            acc, tok_acc, ppl = self.evaluate(
                 dataloader=self.val_dataloader,
                 name="val",
                 truncation_kwargs=self.val_truncation_kwargs,
                 generation_kwargs=self.val_generation_kwargs,
                 perform_generative_eval=True
             )
+            save_best = self.check_best(acc, tok_acc, ppl)
             if self.args.test_path or (self.args.test_split and self.args.test_split != self.args.val_split):
                 if self.accelerator.is_main_process and self.writer:
                     self.writer.set_step(step, mode="test")
