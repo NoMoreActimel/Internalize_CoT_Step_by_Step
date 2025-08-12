@@ -192,7 +192,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
 
             self.evaluate(step, base_name="val")
-            if self.args.test_path:
+            if self.args.test_path or (self.args.test_split and self.args.test_split != self.args.val_split):
                 self.evaluate(step, base_name="test")
 
             self.save_epoch(epoch)
