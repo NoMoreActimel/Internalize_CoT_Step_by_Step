@@ -37,7 +37,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.no_cot_stage = self.args.no_cot_stage
         self.no_cot_stage_mask_length = self.args.no_cot_stage_mask_length
         self.prompt_in_percentage = self.args.prompt_in_percentage
-        self.predict_cot_in_parallel = parallel_cot_inference_on_full_removal
+        self.predict_cot_in_parallel = self.args.parallel_cot_inference_on_full_removal
 
         if self.no_cot_stage or (not self.args.intermediate_eval):
             self.val_removal_ps = [0.0, 1.0]
