@@ -176,9 +176,9 @@ class ImplicitModel(nn.Module):
                     position_ids_i = position_ids_i[:, :sep_positions_i+1] if position_ids is not None else None
             
                     if predict_cot_in_parallel:
-                        cot_start_position = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=0)[0] + 1
-                        cot_end_position = sep_positions[0]
-                        input_ids = self._predict_cot_with_NTP(input_ids, cot_start_position, cot_end_position)
+                        cot_start_position = get_sep_position(input_ids_i, self.tokenizer.eos_token_id, skip=0)[0] + 1
+                        cot_end_position = sep_positions_i[0]
+                        input_ids_i = self._predict_cot_with_NTP(input_ids_i, cot_start_position, cot_end_position)
 
                 beam_output_i = self._generate(
                     input_ids_i, position_ids_i, generation_config, max_new_tokens, num_beams,
@@ -190,7 +190,9 @@ class ImplicitModel(nn.Module):
 
     def _predict_cot_with_NTP(self, input_ids, cot_start_position, cot_end_position):
         # cheats by knowing cot length
-        pred = self.base_model(input_ids)
+        outputs = self.base_model(input_ids)
+        logits = outputs.logits
+        pred = logits.argmax(dim=-1)
         pred_cot = pred[:, cot_start_position - 1 : cot_end_position - 1]
         input_ids = input_ids.clone()
         input_ids[:, cot_start_position : cot_end_position] = pred_cot
