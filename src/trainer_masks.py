@@ -94,7 +94,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             additional_metrics.append("JEPA_loss")
         self.setup_metrics(additional_metrics=additional_metrics)
     
-        self.best_val_type, self.best_val_metric_type = args.best_val_metric.split('_')
+        if '_' in self.args.best_val_metric:
+            self.best_val_type, self.best_val_metric_type = self.args.best_val_metric.split('_')
+        else:
+            self.best_val_type = "no-cot"
+            # trainer_base already initialized self.best_val_metric_type
         self.best_val_metric = 0.0
     
     def _train_process(self):
