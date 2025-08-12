@@ -94,6 +94,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             additional_metrics.append("JEPA_loss")
         self.setup_metrics(additional_metrics=additional_metrics)
     
+        self.best_val_type, self.best_val_metric_type = args.best_val_metric.split('_')
+        self.best_val_metric = 0.0
+    
     def _train_process(self):
         step = 0
 
@@ -192,13 +195,14 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
 
-            self.evaluate(step, base_name="val")
+            save_best = self.evaluate(step, base_name="val")
             if self.args.test_path or (self.args.test_split and self.args.test_split != self.args.val_split):
                 self.evaluate(step, base_name="test")
 
-            self.save_epoch(epoch)
+            self.save_epoch(epoch, save_best=save_best)
     
     def evaluate(self, step, base_name="val"):
+        save_best = False
         for val_removal_p in self.val_removal_ps:
             print(f"\nVALIDATION ON VAL_REMOVAL_P = {val_removal_p}\n")
             name = f"{base_name}_{val_removal_p}" if val_removal_p != 1.0 else base_name
@@ -220,7 +224,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 self.val_generation_kwargs["insert_const_ids_in_cot"] = insert_const_ids_in_cot
 
             dataloader = getattr(self, f"{base_name}_dataloader")
-            self._evaluate(
+            acc, tok_acc, ppl = self._evaluate(
                 dataloader=dataloader,
                 name=name,
                 truncation_kwargs={"val_removal_p": val_removal_p},
@@ -229,6 +233,12 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 generative_eval_hooks=self.generative_eval_hooks if val_removal_p > 0.0 else [],
                 generative_eval_single_batch_size=self.val_generation_kwargs["insert_const_ids_in_cot"]
             )
+
+            if (self.best_val_type == "full-cot" and val_removal_p == 0.0) or \
+                    (self.best_val_type == 'no-cot' and val_removal_p == 1.0):
+                save_best = self.check_best(acc, tok_acc, ppl)
+
+        return save_best
     
     def generation_eval_insert_ids_hook(self, batch, truncation_kwargs, generation_kwargs):
         if generation_kwargs.get("insert_const_ids_in_cot", False):

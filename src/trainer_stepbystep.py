@@ -149,6 +149,8 @@ class StepByStepTrainer(BaseTrainer):
                 self.val_generation_kwargs,
                 perform_generative_eval=True
             )
+            save_best = self.check_best(accuracy, token_accuracy, ppl)
+            
             if self.args.test_path or (self.args.test_split and self.args.test_split != self.args.val_split):
                 if self.accelerator.is_main_process and self.writer:
                     self.writer.set_step(step, mode="test")
@@ -160,6 +162,8 @@ class StepByStepTrainer(BaseTrainer):
                     perform_generative_eval=True
                 )
 
+
+    
             # if accuracy > best_val_accuracy:
             #     print ('***best so far or removed more CoT tokens***')
             #     best_val_accuracy = accuracy
@@ -167,8 +171,7 @@ class StepByStepTrainer(BaseTrainer):
             #         if self.writer: self.writer.set_step(step, mode="test")
             #         self.evaluate(self.test_dataloader, "test", self.val_truncation_kwargs, self.val_generation_kwargs)
             #     self._save_checkpoint(epoch=self.epoch, save_best=True, only_best=True)
-            
-            self.save_epoch(epoch)
+            self.save_epoch(epoch, save_best=save_best)
 
 
     def process_input_truncation(self, batch, epoch, disable_random_removal_offset=False):

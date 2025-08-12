@@ -191,6 +191,12 @@ def main():
                             between reference model on full COTs and current model on corrupted COTs.
                             Works only with --removal_type 'random-masks' trainer.
                         """)
+    
+    # Validation metric name by which to save the best model
+    parser.add_argument('--best-val-metric', type=str,
+        choices=['accuracy', 'token-accuracy', 'full-cot_accuracy', 'no-cot_accuracy', 'full-cot_token-accuracy', 'no-cot_token-accuracy'],
+        default='full-cot_accuracy'
+    )
 
     # JEPA-like training flags    
     parser.add_argument('--alpha_logits_loss', type=float, default=1.0, help='JEPA loss multiplier')
