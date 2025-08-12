@@ -195,7 +195,7 @@ def main():
     # Validation metric name by which to save the best model
     parser.add_argument('--best-val-metric', type=str,
         choices=['accuracy', 'token-accuracy', 'full-cot_accuracy', 'no-cot_accuracy', 'full-cot_token-accuracy', 'no-cot_token-accuracy'],
-        default='full-cot_accuracy'
+        default='accuracy'
     )
 
     # JEPA-like training flags    
