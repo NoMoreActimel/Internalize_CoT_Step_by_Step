@@ -193,9 +193,14 @@ def main():
                         """)
     
     # Validation metric name by which to save the best model
-    parser.add_argument('--best-val-metric', type=str,
+    parser.add_argument(
+        '--best_val_metric', type=str,
         choices=['accuracy', 'token-accuracy', 'full-cot_accuracy', 'no-cot_accuracy', 'full-cot_token-accuracy', 'no-cot_token-accuracy'],
         default='accuracy'
+    )
+    parser.add_argument(
+        '--parallel_cot_inference_on_full_removal', action='store_true',
+        help='Whether to use one forward pass on inference in full-masked mode, works only with random_masks on val_removal_p = 1.0'
     )
 
     # JEPA-like training flags    
