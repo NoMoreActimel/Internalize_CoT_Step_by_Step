@@ -61,16 +61,24 @@ class ImplicitModel(nn.Module):
         self.peft_config = peft_config
 
     def get_peft_config(self):
+        model_name = self.config.base_model.lower()
+
+        if "gpt2" in model_name:
+            target_modules=["c_attn", "c_proj", "c_fc"]
+        elif "llama" in model_name or "qwen" in model_name:
+            target_modules=[
+                "q_proj", "k_proj", "v_proj", "o_proj",
+                "gate_proj", "up_proj", "down_proj"
+            ]
+        else:
+            raise NotImplementedError(f"Model {model_name} is not supported for PEFT, specify target_modules in code!")
         return LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             inference_mode=False,
             r=4,
             lora_alpha=4,
             lora_dropout=0.0,
-            target_modules=[
-                "q_proj", "k_proj", "v_proj", "o_proj",
-                "gate_proj", "up_proj", "down_proj"
-            ],
+            target_modules=target_modules
         )
 
     def forward(self, input_ids, position_ids=None, output_attentions=False):
@@ -115,6 +123,7 @@ class ImplicitModel(nn.Module):
             use_inputs_cot=False,
             position_ids_shift=None,
             insert_const_ids_in_cot=False,
+            predict_cot_in_parallel=False, # only works for use_inputs_cot = True (with 100% random masks)
             insert_position=0,
             random_insertion_prob=None,
             ids_to_insert=None
@@ -144,6 +153,11 @@ class ImplicitModel(nn.Module):
                 if position_ids is not None:
                     position_ids = position_ids[:, :sep_positions[0]+1]
             
+                if predict_cot_in_parallel:
+                    cot_start_position = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=0)[0] + 1
+                    cot_end_position = sep_positions[0]
+                    input_ids = self._predict_cot_with_NTP(input_ids, cot_start_position, cot_end_position)
+            
             beam_output = self._generate(
                 input_ids, position_ids, generation_config, max_new_tokens, num_beams,
                 logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
@@ -160,6 +174,11 @@ class ImplicitModel(nn.Module):
                     sep_positions_i = sep_positions[i:i+1]
                     input_ids_i = input_ids_i[:, :sep_positions_i+1]
                     position_ids_i = position_ids_i[:, :sep_positions_i+1] if position_ids is not None else None
+            
+                    if predict_cot_in_parallel:
+                        cot_start_position = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=0)[0] + 1
+                        cot_end_position = sep_positions[0]
+                        input_ids = self._predict_cot_with_NTP(input_ids, cot_start_position, cot_end_position)
 
                 beam_output_i = self._generate(
                     input_ids_i, position_ids_i, generation_config, max_new_tokens, num_beams,
@@ -168,6 +187,14 @@ class ImplicitModel(nn.Module):
                 )
                 beam_output.append(beam_output_i)
         return beam_output
+
+    def _predict_cot_with_NTP(self, input_ids, cot_start_position, cot_end_position):
+        # cheats by knowing cot length
+        pred = self.base_model(input_ids)
+        pred_cot = pred[:, cot_start_position - 1 : cot_end_position - 1]
+        input_ids = input_ids.clone()
+        input_ids[:, cot_start_position : cot_end_position] = pred_cot
+        return input_ids
 
     def _generate(
             self,
