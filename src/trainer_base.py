@@ -8,6 +8,9 @@ from transformers.utils import is_peft_available
 
 from utils import get_sep_position, extract_answer
 
+if is_peft_available():
+    from peft import get_peft_model_state_dict, set_peft_model_state_dict
+
 class BaseTrainer:
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args):
         self.args = args
@@ -257,7 +260,7 @@ class BaseTrainer:
 
         if getattr(unwrapped_model, "use_peft", False):
             assert is_peft_available()
-            state["state_dict"] = unwrapped_model.base_model.get_peft_model_state_dict()
+            state["state_dict"] = get_peft_model_state_dict(unwrapped_model.base_model)
             # state["peft_config"] = unwrapped_model.peft_config
         else:
             state["state_dict"] = unwrapped_model.state_dict()
