@@ -146,11 +146,14 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             if self.accelerator.is_main_process:
                 print(f">>> Using mixed precision: {self.accelerator.state.mixed_precision}")
 
-            for batch in tqdm.tqdm(self.train_dataloader):
+            for batch_idx, batch in tqdm.tqdm(enumerate(self.train_dataloader)):
                 batch, all_cot_removed_in_batch = self.process_input_truncation(batch)
                 # self.move_batch_to_device(batch, self.device) <-- handled by accelerator
 
-                # print(batch["input_ids"].shape, batch["input_ids"][0])
+                if batch_idx % 1000 == 0:
+                    print("[DEBUG]")
+                    print("\ninput_ids:", batch["input_ids"].shape, "\n", batch["input_ids"][0])
+                    print("\nlabels:", batch["labels"].shape, "\n", batch["labels"][0], "\n")
                 # print(self.tokenizer.batch_decode(batch["input_ids"], skip_special_tokens=False)[0])
 
                 # if not all_cot_removed_in_batch:
