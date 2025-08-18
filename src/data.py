@@ -33,6 +33,10 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     dataset_kwargs["max_cot_length"] = args.max_cot_length
     dataset_kwargs["cot_pad_id"] = args.cot_pad_id
 
+    dataset_kwargs["pad_query"] = args.pad_query
+    dataset_kwargs["max_query_length"] = args.max_query_length
+    dataset_kwargs["query_pad_id"] = args.query_pad_id
+
     # In case of huggingface dataset, always use our CoTChunksHFDataset instead of native iCoT one
     ours_sbs_flag = (args.removal_type == 'step-by-step') and (args.huggingface_dataset or args.json_dataset)
 
