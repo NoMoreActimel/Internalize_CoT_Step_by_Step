@@ -65,6 +65,9 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
         self.chunk_size = chunk_size
         self.num_new_tokens = num_new_tokens
 
+        self._init_pad_attributes(**kwargs)
+        self._pad_cots() # <- we compute the same max-length for train / val / test
+
         if manual_split:
             split_seed = shuffle_seed if shuffle_seed is not None else 1
             self.split_manually(manual_split, split_seed=split_seed)

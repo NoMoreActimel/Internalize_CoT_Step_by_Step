@@ -56,6 +56,9 @@ class CoTDatasetChunks(Dataset):
             pad_cot=False,
             max_cot_length=-1,
             cot_pad_id=None,
+            pad_query=False,
+            max_query_length=-1,
+            query_pad_id=None,
             **kwargs
     ):
         """
@@ -80,6 +83,14 @@ class CoTDatasetChunks(Dataset):
         self.chunk_size = chunk_size
         self.num_new_tokens = num_new_tokens
 
+        self._init_pad_attributes(pad_cot, max_cot_length, cot_pad_id, pad_query, max_query_length, query_pad_id)
+
+        lines = self._read_lines()
+        self.dataset = self._process_examples(lines)
+        
+        self._pad_if_needed()
+        
+    def _init_pad_attributes(self, pad_cot, max_cot_length, cot_pad_id, pad_query, max_query_length, query_pad_id, **kwargs):
         self.pad_cot = pad_cot
         self.max_cot_length = max_cot_length
         self.cot_pad_id = cot_pad_id
@@ -87,8 +98,14 @@ class CoTDatasetChunks(Dataset):
             self.cot_pad_id = self.tokenizer.encode("<cot>", add_special_tokens=False)[0]
             print(f'CoT Pad Id was not provided, using {self.cot_pad_id} corresponding to "<cot>"!')
 
-        lines = self._read_lines()
-        self.dataset = self._process_examples(lines)
+        self.pad_query = pad_query
+        self.max_query_length = max_query_length
+        self.query_pad_id = query_pad_id
+        if self.query_pad_id is None:
+            self.query_pad_id = self.tokenizer.encode("<query>", add_special_tokens=False)[0]
+            print(f'Query Pad Id was not provided, using {self.query_pad_id} corresponding to "<query>"!')
+
+    def _pad_if_needed(self):
         if self.pad_cot:
             emp_max_cot_length = self._compute_max_cot_length()
             if self.max_cot_length is not None:
@@ -102,7 +119,20 @@ class CoTDatasetChunks(Dataset):
             else:
                 self.max_cot_length = emp_max_cot_length
             self._pad_cots()
-        
+
+        if self.pad_query:
+            emp_max_query_length = self._compute_max_query_length()
+            if self.max_query_length is not None:
+                if emp_max_query_length > self.max_query_length:
+                    print(f"""
+                          [WARNING] Specified max_query_length = {self.max_query_length} 
+                          is smaller than observed max query length = {emp_max_query_length},
+                          switching to it!!!
+                    """)
+                    self.max_query_length = emp_max_query_length
+            else:
+                self.max_query_length = emp_max_query_length
+            self._pad_queries()
 
     def _read_lines(self):
         if self.json_dataset:
@@ -146,6 +176,17 @@ class CoTDatasetChunks(Dataset):
         print(f"Empirical max CoT length is {max_len}!")
         return max_len
 
+    def _compute_max_query_length(self):
+        max_len = 0
+        for item in self.dataset:
+            seps = (item["input_ids"] == self.separator).nonzero(as_tuple=True)[0]
+            if len(seps) >= 1:
+                # Query length is from start to first separator (excluding the separator)
+                query_len = seps[0].item()
+                max_len = max(query_len, max_len)
+        print(f"Empirical max query length is {max_len}!")
+        return max_len
+
     def _pad_cots(self):
         print(f"Padding CoTs with pad token: {self.cot_pad_id} up to max length: {self.max_cot_length}!")
         for item in self.dataset:
@@ -158,6 +199,20 @@ class CoTDatasetChunks(Dataset):
                     item["input_ids"][:seps[1].item()],
                     torch.full((n_cot_pad_ids,), self.cot_pad_id, dtype=item["input_ids"].dtype),
                     item["input_ids"][seps[1].item():]
+                ], dim=0)
+
+    def _pad_queries(self):
+        print(f"Padding queries with pad token: {self.query_pad_id} up to max length: {self.max_query_length}!")
+        for item in self.dataset:
+            seps = (item["input_ids"] == self.separator).nonzero(as_tuple=True)[0]
+            query_length = seps[0].item()
+            n_query_pad_ids = self.max_query_length - query_length
+
+            if n_query_pad_ids > 0:
+                item["input_ids"] = torch.cat([
+                    item["input_ids"][:seps[0].item()],
+                    torch.full((n_query_pad_ids,), self.query_pad_id, dtype=item["input_ids"].dtype),
+                    item["input_ids"][seps[0].item():]
                 ], dim=0)
         
     def _process_examples(self, lines):
