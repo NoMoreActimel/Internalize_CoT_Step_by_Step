@@ -66,16 +66,18 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
         self.num_new_tokens = num_new_tokens
 
         self._init_pad_attributes(**kwargs)
-        self._pad_cots() # <- we compute the same max-length for train / val / test
-
-        if manual_split:
-            split_seed = shuffle_seed if shuffle_seed is not None else 1
-            self.split_manually(manual_split, split_seed=split_seed)
 
         lines = self._read_lines()
         lines = self._format_answers(lines)
         self.dataset = self._process_examples(lines)
-    
+        
+        self._pad_cots() # <- we compute the same max-length for train / val / test
+
+        # we need to split after preprocessing all samples each time for same max-length padding
+        if manual_split: 
+            split_seed = shuffle_seed if shuffle_seed is not None else 1
+            self.split_manually(manual_split, split_seed=split_seed)
+
     def split_manually(self, manual_split, split_seed):
         if manual_split not in ("val", "test"):
             raise ValueError(f"Manual split must be one of 'val' or 'test', found {manual_split}")
