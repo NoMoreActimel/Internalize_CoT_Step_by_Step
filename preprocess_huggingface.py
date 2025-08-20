@@ -7,6 +7,12 @@ from datasets import load_dataset
 from torch.utils.data import Dataset as TorchDataset
 # from sklearn.model_selection import train_test_split
 
+try:
+    from transformers import AutoTokenizer
+    TOKENIZERS_AVAILABLE = True
+except ImportError:
+    TOKENIZERS_AVAILABLE = False
+
 
 class HuggingFaceDataset(TorchDataset):
     def __init__(
@@ -78,7 +84,10 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
             split_random_state=42,
             filter_max_str_length=None,
             filter_min_str_length=None,
+            filter_max_tokens=None,
+            filter_min_tokens=None,
             filter_key="answer",
+            tokenizer_model=None,
             json_dataset=False,
             **kwargs
             ):
@@ -89,11 +98,27 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
             **kwargs
         )
 
+        # Initialize tokenizer if token filtering is requested
+        self.tokenizer = None
+        if (filter_max_tokens is not None or filter_min_tokens is not None):
+            if not TOKENIZERS_AVAILABLE:
+                raise ImportError("transformers library is required for token-based filtering. Install with: pip install transformers")
+            if tokenizer_model is None:
+                raise ValueError("tokenizer_model must be specified when using token-based filtering")
+            
+            print(f"Loading tokenizer: {tokenizer_model}")
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_model)
+
         self._filter_correct()
         self._preprocess_format()
         
-        if filter_max_str_length is not None:
-            self.filter_length(filter_min_str_length, filter_max_str_length, filter_key)
+        # Apply string length filtering
+        if filter_max_str_length is not None or filter_min_str_length is not None:
+            self.filter_length(filter_min_str_length, filter_max_str_length, filter_key, use_tokens=False)
+        
+        # Apply token length filtering
+        if filter_max_tokens is not None or filter_min_tokens is not None:
+            self.filter_length(filter_min_tokens, filter_max_tokens, filter_key, use_tokens=True)
 
         self.split_train_val_test = split_train_val_test
         self.val_size = val_size
@@ -111,37 +136,31 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
     def _filter_correct(self):
         pass
     
-    def filter_length(self, min_str_length, max_str_length, key):
+    def filter_length(self, min_length, max_length, key, use_tokens=False):
         dataset_size = len(self.dataset)
         new_dataset = []
+        
+        length_type = "tokens" if use_tokens else "characters"
+        print(f"Filtering by {length_type} for key='{key}' with min={min_length}, max={max_length}")
+       
+
+        keys = key.split(',') if ',' in key else [key]
         for sample in self.dataset:
-            if (max_str_length is None) or (len(sample[key]) <= max_str_length):
-                if (min_str_length is None) or (len(sample[key]) >= min_str_length):
-                    new_dataset.append(sample)
-        self.dataset = new_dataset
-
-        print(f' \
-            Filtered dataset by key="{key}" string min_length="{min_str_length} and max_length="{max_str_length}", \
-            size reduced from {dataset_size} to {len(self.dataset)} samples! \
-        ')
+            text = '\n'.join([f"{k}: {sample[k]}" for k in keys])
     
-    # def _train_val_test_split(self):
-    #     train_plus_val, test = train_test_split(
-    #         self.dataset,
-    #         test_size=self.test_size,
-    #         random_state=self.split_random_state
-    #     )
-    #     # Now split train+val into TRAIN and VAL
-    #     # we want val_size fraction *of the original*, so relative val on train_plus_val is:
-    #     rel_val_size = self.val_size / (1.0 - self.test_size)
-    #     train, val = train_test_split(
-    #         train_plus_val,
-    #         test_size=rel_val_size,
-    #         random_state=self.split_random_state
-    #     )
-
-    #     print(f"Split data into: train: {len(train)}, val: {len(val)}, test: {len(test)}")
-    #     return train, val, test
+            if use_tokens:
+                if self.tokenizer is None:
+                    raise ValueError("Tokenizer not initialized for token-based filtering")
+                length = len(self.tokenizer.encode(text))
+            else:
+                length = len(text)
+            
+            # Check if sample passes length filters
+            if (max_length is None or length <= max_length) and (min_length is None or length >= min_length):
+                new_dataset.append(sample)
+        
+        self.dataset = new_dataset
+        print(f'Filtered dataset by {length_type}, size reduced from {dataset_size} to {len(self.dataset)} samples!')
     
     def _train_val_test_split(self):
         n = len(self.dataset)
@@ -162,7 +181,6 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
         print(f"Split data into: train: {len(train)}, val: {len(val)}, test: {len(test)}")
         return train, val, test
 
-
     def write_lines(self, output_dir):
         ext = "json" if self.json_dataset else "txt"
         if self.split_train_val_test:
@@ -180,7 +198,7 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
             else:
                 with open(path, 'w') as f:
                     for item in dataset:
-                        f.write(f'{item["question"]}||{item["answer"]}')
+                        f.write(f'{item["question"]}||{item["answer"]}\n')
             print(f"Wrote formatted dataset into {path}!")
 
 
@@ -190,16 +208,30 @@ class OpenR1MathDataset(HuggingFacePreprocessDataset):
 
         mean_length = 0
         max_length = 0
+        mean_tokens = 0
+        max_tokens = 0
+        
         for i, sample in enumerate(self.dataset):
-            # if i % 1000 == 0:
-                # print(i, len(sample['answer']), sample)
-            mean_length += len(sample['answer'])
-            max_length = max(max_length, len(sample['answer']))
+            # Character-based stats
+            char_length = len(sample['answer'])
+            mean_length += char_length
+            max_length = max(max_length, char_length)
+            
+            # Token-based stats (if tokenizer available)
+            if self.tokenizer is not None:
+                token_length = len(self.tokenizer.encode(sample['answer']))
+                mean_tokens += token_length
+                max_tokens = max(max_tokens, token_length)
 
         print("-" * 30)
         print("Final dataset size:", len(self.dataset))
-        print("Mean length:", mean_length / len(self.dataset))
-        print("Max length:", max_length)
+        print("Mean character length:", mean_length / len(self.dataset))
+        print("Max character length:", max_length)
+        
+        if self.tokenizer is not None:
+            print("Mean token length:", mean_tokens / len(self.dataset))
+            print("Max token length:", max_tokens)
+            
         print("-" * 60)
     
     def _preprocess_format(self):
@@ -219,10 +251,8 @@ class OpenR1MathDataset(HuggingFacePreprocessDataset):
                 items.append(item)
         self.dataset = items
 
-        print(f' \
-            Filtered dataset by correctness and completeness of reasoning", \
-            size reduced from {dataset_size} to {len(self.dataset)} samples! \
-        ')
+        print(f'Filtered dataset by correctness and completeness of reasoning, '
+              f'size reduced from {dataset_size} to {len(self.dataset)} samples!')
     
 
 class OpenMathInstructDataset(HuggingFacePreprocessDataset):
@@ -231,14 +261,30 @@ class OpenMathInstructDataset(HuggingFacePreprocessDataset):
 
         mean_length = 0
         max_length = 0
+        mean_tokens = 0
+        max_tokens = 0
+        
         for i, sample in enumerate(self.dataset):
-            mean_length += len(sample['answer'])
-            max_length = max(max_length, len(sample['answer']))
+            # Character-based stats
+            char_length = len(sample['answer'])
+            mean_length += char_length
+            max_length = max(max_length, char_length)
+            
+            # Token-based stats (if tokenizer available)
+            if self.tokenizer is not None:
+                token_length = len(self.tokenizer.encode(sample['answer']))
+                mean_tokens += token_length
+                max_tokens = max(max_tokens, token_length)
 
         print("-" * 30)
         print("Final dataset size:", len(self.dataset))
-        print("Mean length:", mean_length / len(self.dataset))
-        print("Max length:", max_length)
+        print("Mean character length:", mean_length / len(self.dataset))
+        print("Max character length:", max_length)
+        
+        if self.tokenizer is not None:
+            print("Mean token length:", mean_tokens / len(self.dataset))
+            print("Max token length:", max_tokens)
+            
         print("-" * 60)
     
     def _preprocess_format(self):
@@ -273,9 +319,15 @@ def main():
     parser.add_argument('--test_size', type=float, default=0.1, help="proportion for test set when splitting")
     parser.add_argument('--split_random_state', type=int, default=42)
 
-    # filtering
-    parser.add_argument('--filter_max_str_length', type=int, default=None, help="drop samples whose `--filter_key` is longer")
-    parser.add_argument('--filter_min_str_length', type=int, default=None, help="drop samples whose `--filter_key` is shorter")
+    # filtering - string-based
+    parser.add_argument('--filter_max_str_length', type=int, default=None, help="drop samples whose `--filter_key` is longer (characters)")
+    parser.add_argument('--filter_min_str_length', type=int, default=None, help="drop samples whose `--filter_key` is shorter (characters)")
+    
+    # filtering - token-based (new)
+    parser.add_argument('--filter_max_tokens', type=int, default=None, help="drop samples whose `--filter_key` is longer (tokens)")
+    parser.add_argument('--filter_min_tokens', type=int, default=None, help="drop samples whose `--filter_key` is shorter (tokens)")
+    parser.add_argument('--tokenizer_model', type=str, default=None, help="model name/path for tokenizer (required for token filtering)")
+    
     parser.add_argument('--filter_key', type=str, default="answer", help="which field to check length against")
 
     # output
@@ -298,7 +350,10 @@ def main():
         "split_random_state":   args.split_random_state,
         "filter_max_str_length":args.filter_max_str_length,
         "filter_min_str_length":args.filter_min_str_length,
+        "filter_max_tokens":    args.filter_max_tokens,
+        "filter_min_tokens":    args.filter_min_tokens,
         "filter_key":           args.filter_key,
+        "tokenizer_model":      args.tokenizer_model,
         "json_dataset":         args.json_dataset
     }
 

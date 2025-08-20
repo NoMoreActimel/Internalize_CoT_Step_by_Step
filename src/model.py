@@ -126,7 +126,9 @@ class ImplicitModel(nn.Module):
             predict_cot_in_parallel=False, # only works for use_inputs_cot = True (with 100% random masks)
             insert_position=0,
             random_insertion_prob=None,
-            ids_to_insert=None
+            ids_to_insert=None,
+            max_cot_tokens=None,
+            return_logits=False
     ):
         sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=1 if use_inputs_cot else 0)
         batch_size = input_ids.shape[0]
@@ -161,7 +163,8 @@ class ImplicitModel(nn.Module):
             beam_output = self._generate(
                 input_ids, position_ids, generation_config, max_new_tokens, num_beams,
                 logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
-                position_ids_shift, insert_const_ids_in_cot, insert_position, random_insertion_prob, ids_to_insert
+                position_ids_shift, insert_const_ids_in_cot, insert_position, random_insertion_prob, ids_to_insert,
+                max_cot_tokens, return_logits
             )
             if isinstance(beam_output, torch.Tensor):
                 beam_output = beam_output.unsqueeze(1)
@@ -183,7 +186,8 @@ class ImplicitModel(nn.Module):
                 beam_output_i = self._generate(
                     input_ids_i, position_ids_i, generation_config, max_new_tokens, num_beams,
                     logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
-                    position_ids_shift, insert_const_ids_in_cot, insert_position, random_insertion_prob, ids_to_insert
+                    position_ids_shift, insert_const_ids_in_cot, insert_position, random_insertion_prob, ids_to_insert,
+                    max_cot_tokens, return_logits
                 )
                 beam_output.append(beam_output_i)
         return beam_output
@@ -194,8 +198,12 @@ class ImplicitModel(nn.Module):
         logits = outputs.logits
         pred = logits.argmax(dim=-1)
         pred_cot = pred[:, cot_start_position - 1 : cot_end_position - 1]
+
+        print("[PARALLEL INFERENCE DEBUG]")
+        print("\ninput_ids:", input_ids.shape, "\n", input_ids[0])
         input_ids = input_ids.clone()
         input_ids[:, cot_start_position : cot_end_position] = pred_cot
+        print("\nwith parallel pred:", input_ids.shape, "\n", input_ids[0], "\n")
         return input_ids
 
     def _generate(
@@ -213,7 +221,9 @@ class ImplicitModel(nn.Module):
             insert_const_ids_in_cot=False,
             insert_position=0,
             random_insertion_prob=None,
-            ids_to_insert=None
+            ids_to_insert=None,
+            max_cot_tokens=None,
+            return_logits=False
     ):
         if use_new_tokens:
             return self._generate_with_new_tokens(
@@ -254,52 +264,111 @@ class ImplicitModel(nn.Module):
                 random_insertion_prob,
                 ids_to_insert
             )
-            
+        
+        if max_cot_tokens is not None:
+            assert insert_const_ids_in_cot is False, \
+                "Max cot tokens runs through generate_with_insertion by itself, no support for additional insertion"
+            return self._generate_with_insertion(
+                input_ids,
+                generation_config,
+                max_new_tokens,
+                num_beams,
+                logits_processor,
+                stopping_criteria,
+                insert_const_ids_in_cot=True,
+                insert_position=max_cot_tokens,
+                ids_to_insert=torch.cat([self.tokenizer.eos_token_id, self.split_ids], dim=0),
+                return_logits=return_logits
+            )
+        
+        return self._generate_with_insertion(
+            input_ids,
+            generation_config,
+            max_new_tokens,
+            num_beams,
+            logits_processor,
+            stopping_criteria,
+            insert_const_ids_in_cot,
+            insert_position,
+            ids_to_insert,
+            return_logits
+        )        
+    
+    def _generate_with_insertion(
+            self,
+            input_ids,
+            generation_config,
+            max_new_tokens,
+            num_beams,
+            logits_processor,
+            stopping_criteria,
+            insert_const_ids_in_cot,
+            insert_position,
+            ids_to_insert,
+            return_logits
+    ):
         #print(f"[PROFILE] EOS in inputs: {(input_ids == self.tokenizer.eos_token_id)}")
         
         first_generation = insert_position
         second_generation = max_new_tokens - insert_position
-        if insert_const_ids_in_cot and insert_position > 0:
-            beam_output = self.base_model.generate(
-                input_ids=input_ids,
-                generation_config=generation_config,
-                max_new_tokens=first_generation,
-                num_beams=num_beams,
-                early_stopping=True,
-                num_return_sequences=1,
-                logits_processor=logits_processor,
-                stopping_criteria=stopping_criteria,
-            )
-        
-        if insert_const_ids_in_cot and insert_position > 0:
-            beam_output = self.insert_const_ids(beam_output, ids_to_insert, logits_processor)
-            logits_processor, stopping_criteria = self.reinit_processor_criteria(
+
+        generate_kwargs = {
+            "input_ids": input_ids,
+            "generation_config": generation_config,
+            "max_new_tokens": first_generation,
+            "num_beams": num_beams,
+            "early_stopping": True,
+            "num_return_sequences": 1,
+            "logits_processor": logits_processor,
+            "stopping_criteria": stopping_criteria,
+            "return_dict_in_generate": return_logits,
+            "output_scores": return_logits
+        }
+
+        all_logits = [] if return_logits else None
+
+        if insert_const_ids_in_cot:
+            beam_output = input_ids
+            if insert_position > 0:
+                beam_output = self.base_model.generate(**generate_kwargs)
+                if return_logits:
+                    beam_output = beam_output.sequences
+                    all_logits.append(torch.stack(beam_output.scores, dim=1))
+            
+            generate_kwargs["input_ids"] = self.insert_const_ids(beam_output, ids_to_insert, logits_processor, all_logits) # appends to all_logits
+            
+            eos_count = (generate_kwargs["input_ids"] == self.tokenizer.eos_token_id).sum(dim=-1)
+            # If we have 2 or more EOS tokens, we're done (one after CoT, one after answer)
+            if (eos_count >= 2).all():
+                print("[PROFILE] Second EOS reached after insertion, skipping second generation")
+                if return_logits and all_logits:
+                    all_logits = torch.cat(all_logits, dim=1)
+                    return generate_kwargs["input_ids"], all_logits
+                return generate_kwargs["input_ids"]
+
+            generate_kwargs["logits_processor"], generate_kwargs["stopping_criteria"] = self.reinit_processor_criteria(
                 logits_processor, stopping_criteria
             )
-        else:
-            beam_output = input_ids
 
+        generate_kwargs["max_new_tokens"] = second_generation
         
         t0 = time.time()
-        beam_output = self.base_model.generate(
-            input_ids=beam_output,
-            generation_config=generation_config,
-            max_new_tokens=second_generation,
-            num_beams=num_beams,
-            early_stopping=True,
-            num_return_sequences=1,
-            logits_processor=logits_processor,
-            stopping_criteria=stopping_criteria,
-        )
+        beam_output = self.base_model.generate(**generate_kwargs)
         t1 = time.time()
+
+        if return_logits:
+            beam_output = beam_output.sequences
+            all_logits.append(torch.stack(beam_output.scores, dim=1))
+            all_logits = torch.cat(all_logits, dim=1)
         
         total_forward_time = t1 - t0
         total_generated = beam_output.shape[-1] - input_ids.shape[-1]
         print(f"[PROFILE] total forward calls: {total_generated}  total forward time: {total_forward_time:.3f}s")
-
         #print(f"[PROFILE] num EOS in outputs: {(beam_output == self.tokenizer.eos_token_id).sum(dim=-1)}")
         print(f"[PROFILE] EOS in outputs: {(beam_output == self.tokenizer.eos_token_id)}")
-
+        
+        if return_logits: 
+            return beam_output, all_logits
         return beam_output
 
     def _generate_with_random_insertion(
@@ -571,7 +640,7 @@ class ImplicitModel(nn.Module):
         
         return texts_generated
 
-    def insert_const_ids(self, output_ids, ids_to_insert, logits_processor):
+    def insert_const_ids(self, output_ids, ids_to_insert, logits_processor, logits_list=None):
         if logits_processor is None:
             eos_count_init = torch.zeros(output_ids.shape[:-1])
         else:
@@ -584,13 +653,39 @@ class ImplicitModel(nn.Module):
         ids_to_insert = ids_to_insert.detach().clone()
         if ids_to_insert.ndim == 1:
             ids_to_insert = ids_to_insert.unsqueeze(0)
-        if ids_to_insert.shape[0] != output_ids.shape[0]:
-            N = output_ids.shape[0] // ids_to_insert.shape[0]
+        
+        outputs_bs = output_ids.shape[0]
+        insert_bs = ids_to_insert.shape[0]
+        if insert_bs != outputs_bs:
+            N = outputs_bs // insert_bs
             ids_to_insert = ids_to_insert.expand(N, ids_to_insert.shape[1:])
         
         ids_to_insert[done_cot, :] = eos_token_id
         output_ids = torch.cat([output_ids, ids_to_insert], dim=1)
+
+        if logits_list is not None:
+            self.append_logits(ids_to_insert, insert_bs, logits_list)
         return output_ids
+
+    def append_logits(self, ids_to_insert, insert_bs, logits_list):
+        vocab_size = logits_list[0].shape[-1]
+        num_inserted_tokens = ids_to_insert.shape[-1]
+        inserted_logits = torch.full(
+            (logits_list[0].shape[0], num_inserted_tokens, vocab_size), 
+            float('-inf'), 
+            device=logits_list[0].device
+        )
+
+        if insert_bs == 1:
+            for i, token_id in enumerate(ids_to_insert[0]):
+                inserted_logits[:, i, token_id] = 10.0
+        else:
+            L = ids_to_insert.shape[1]
+            for i_flat, token_id in enumerate(ids_to_insert.view(-1)):
+                i, j = i_flat // L, i_flat % L
+                inserted_logits[i, j, token_id] = 10.0
+
+        logits_list.append(torch.stack(inserted_logits))
 
     def reinit_processor_criteria(self, logits_processor, stopping_criteria):
         if logits_processor is None:
@@ -632,7 +727,7 @@ class ImplicitModel(nn.Module):
 
         if self.use_peft:
             adapter_path = save_directory.rsplit('.', 1)[0] + "-adapter.pth"
-            self.base_model.save_pretrained(adapter_dir)
+            self.base_model.save_pretrained(adapter_path)
             return
 
         state_dict = self.state_dict()
