@@ -195,6 +195,21 @@ def main():
                             Works only with --removal_type 'random-masks' trainer.
                         """)
     
+    # Training with random CoTs
+    parser.add_argument('--random_cot', action='store_true', default=False, help="""Whether to use random CoTs""")
+    parser.add_argument('--random_cot_length', type=int, default=50, help="""Length of random CoT to generate.""")
+    parser.add_argument(
+        '--random_cot_strategy', type=str,
+        choices=['random_digits', 'random_digits_from_question', 'fixed_permutation_random_digits_from_question'],
+        default='random_digits', help="""
+            Strategy for generating random CoT:
+            - 'random_digits': Completely random digits separated with space
+            - 'random_digits_from_question': Randomly sampled tokens from question (digits), new permutation each sample
+            - 'fixed_permutation_random_digits_from_question': Same as 2, but fixed permutation for all samples,
+                All samples MUST have the same number of digits in question.
+        """
+    )
+
     # Validation metric name by which to save the best model
     parser.add_argument(
         '--best_val_metric', type=str,
