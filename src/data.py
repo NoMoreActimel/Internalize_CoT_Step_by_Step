@@ -1,6 +1,7 @@
 from torch.utils.data import DataLoader
 
 from data_stepbystep import CoTDataset, CoTDataCollator
+from data_random_cot import CoTDatasetRandomCot, CoTDataCollatorRandomCot
 from data_chunked import CoTDatasetChunks, CoTDataCollatorChunks
 from data_huggingface import CoTChunksHFDataset
 
@@ -37,20 +38,26 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     dataset_kwargs["max_query_length"] = args.max_query_length
     dataset_kwargs["query_pad_id"] = args.query_pad_id
 
+    dataset_kwargs["json_dataset"] = args.json_dataset
+    dataset_kwargs["chunk_size"] = args.chunk_size if args.removal_type == 'random-chunks' else None
+    dataset_kwargs["num_new_tokens"] = args.num_new_tokens if args.removal_type == 'random-chunks' else 0
+    dataset_kwargs["new_token_ids"] = new_token_ids if args.removal_type == 'random-chunks' else None
+
+    dataset_kwargs["random_cot_strategy"] = args.random_cot_strategy
+    dataset_kwargs["random_cot_length"] = args.random_cot_length
+
     # In case of huggingface dataset, always use our CoTChunksHFDataset instead of native iCoT one
     ours_sbs_flag = (args.removal_type == 'step-by-step') and (args.huggingface_dataset or args.json_dataset)
 
-    if args.removal_type == 'step-by-step' and not ours_sbs_flag:
+    if args.random_cot:
+        DatasetClass = CoTDatasetRandomCot
+        CollateClass = CoTDataCollatorRandomCot
+    elif args.removal_type == 'step-by-step' and not ours_sbs_flag:
         DatasetClass = CoTDataset
         CollateClass = CoTDataCollator
     elif args.removal_type == 'random-chunks' or args.removal_type == 'random-masks' or ours_sbs_flag:
         DatasetClass = CoTChunksHFDataset if args.huggingface_dataset else CoTDatasetChunks
         CollateClass = CoTDataCollatorChunks
-
-        dataset_kwargs["json_dataset"] = args.json_dataset
-        dataset_kwargs["chunk_size"] = args.chunk_size if args.removal_type == 'random-chunks' else None
-        dataset_kwargs["num_new_tokens"] = args.num_new_tokens if args.removal_type == 'random-chunks' else 0
-        dataset_kwargs["new_token_ids"] = new_token_ids if args.removal_type == 'random-chunks' else None
     else:
         raise ValueError(f'args.removal_type must be either "step-by-step", "random-chunks", "random-masks", found {args.removal_type}')
     
