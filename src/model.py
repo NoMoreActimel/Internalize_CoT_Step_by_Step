@@ -151,15 +151,10 @@ class ImplicitModel(nn.Module):
 
         if sep_positions.eq(sep_positions[0]).all():
             if inputs_with_cot:
-                input_ids = input_ids[:, :sep_positions[0]+1]
-                if position_ids is not None:
-                    position_ids = position_ids[:, :sep_positions[0]+1]
-            
-                if predict_cot_in_parallel:
-                    cot_start_position = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=0)[0] + 1
-                    cot_end_position = sep_positions[0]
-                    input_ids = self._predict_cot_with_NTP(input_ids, cot_start_position, cot_end_position)
-            
+                input_ids, position_ids = self._handle_inputs_with_cot(
+                    input_ids, position_ids, sep_positions, predict_cot_in_parallel, force_cot_answer_split
+                )
+
             beam_output = self._generate(
                 input_ids, position_ids, generation_config, max_new_tokens, num_beams,
                 logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
@@ -173,16 +168,15 @@ class ImplicitModel(nn.Module):
             for i in range(batch_size):
                 input_ids_i = input_ids[i:i+1]
                 position_ids_i = position_ids[i:i+1] if position_ids is not None else None
+
                 if inputs_with_cot:
                     sep_positions_i = sep_positions[i:i+1]
-                    input_ids_i = input_ids_i[:, :sep_positions_i+1]
-                    position_ids_i = position_ids_i[:, :sep_positions_i+1] if position_ids is not None else None
-            
-                    if predict_cot_in_parallel:
-                        cot_start_position = get_sep_position(input_ids_i, self.tokenizer.eos_token_id, skip=0)[0] + 1
-                        cot_end_position = sep_positions_i[0]
-                        input_ids_i = self._predict_cot_with_NTP(input_ids_i, cot_start_position, cot_end_position)
-
+                    input_ids_i = input_ids_i[:, :sep_positions_i[0]+1]
+                    position_ids_i = position_ids_i[:, :sep_positions_i[0]+1] if position_ids is not None else None
+                    input_ids_i, position_ids_i = self._handle_inputs_with_cot(
+                        input_ids_i, position_ids_i, sep_positions_i, predict_cot_in_parallel, force_cot_answer_split
+                    )
+                
                 beam_output_i = self._generate(
                     input_ids_i, position_ids_i, generation_config, max_new_tokens, num_beams,
                     logits_processor, stopping_criteria, use_new_tokens, new_tokens_start_id,
@@ -191,6 +185,29 @@ class ImplicitModel(nn.Module):
                 )
                 beam_output.append(beam_output_i)
         return beam_output
+    
+    def _handle_inputs_with_cot(self, input_ids, position_ids, sep_positions, predict_cot_in_parallel=False, force_cot_answer_split=False, logits_processor=None):
+        input_ids = input_ids[:, :sep_positions[0]+1]
+        if position_ids is not None:
+            position_ids = position_ids[:, :sep_positions[0]+1]
+    
+        if predict_cot_in_parallel:
+            cot_start_position = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=0)[0] + 1
+            cot_end_position = sep_positions[0]
+            input_ids = self._predict_cot_with_NTP(input_ids, cot_start_position, cot_end_position)
+        
+        if force_cot_answer_split:
+            input_ids = torch.cat([input_ids, self.split_ids], dim=1)
+            if position_ids is not None:
+                last_pos = position_ids[0, -1].item()
+                extension = torch.arange(
+                    last_pos + 1,
+                    last_pos + 1 + self.split_ids.shape[-1],
+                    device=position_ids.device
+                ).unsqueeze(0)
+                position_ids = torch.cat([position_ids, extension], dim=1)
+            
+        return input_ids, position_ids
 
     def _predict_cot_with_NTP(self, input_ids, cot_start_position, cot_end_position):
         # cheats by knowing cot length
