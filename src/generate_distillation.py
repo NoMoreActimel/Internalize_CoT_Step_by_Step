@@ -343,7 +343,7 @@ def main():
     # Generation arguments
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--max_new_tokens', type=int, default=800)
-    parser.add_argument('--masking_type', type=str, choices=['contiguous', 'random'], default='contiguous',
+    parser.add_argument('--masking_type', type=str, choices=['left-to-right', 'contiguous', 'random'], default='contiguous',
                         help="Type of masking to apply when CoT length exceeds max_cot_length")
     
     # Model loading arguments
