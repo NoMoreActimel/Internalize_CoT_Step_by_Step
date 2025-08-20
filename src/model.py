@@ -124,6 +124,7 @@ class ImplicitModel(nn.Module):
             position_ids_shift=None,
             insert_const_ids_in_cot=False,
             predict_cot_in_parallel=False, # only works for use_inputs_cot = True (with 100% random masks)
+            force_cot_answer_split=False,
             insert_position=0,
             random_insertion_prob=None,
             ids_to_insert=None,
