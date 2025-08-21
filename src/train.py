@@ -10,6 +10,7 @@ import torch
 
 from data import load_data
 from data_chunked import add_new_tokens
+from data_distillation import load_distillation_data
 from model import ImplicitModel
 from model_jepa import JEPAImplicitModel
 from configuration_model import ImplicitModelConfig
@@ -17,6 +18,7 @@ from trainer_stepbystep import StepByStepTrainer
 from trainer_chunks import ChunkRemovalTrainer
 from trainer_masks import AuxiliarMasksRemovalTrainer
 from trainer_simple import SimpleTrainer
+from trainer_distillation import DistillationTrainer
 
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -177,6 +179,16 @@ def main():
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--accumulate', type=int, default=1)
+
+    # Distillation hyperparameters
+    parser.add_argument('--distillation', action='store_true', default=False,
+                        help='Enable distillation training mode using teacher generations and logits')
+    parser.add_argument('--distillation_temperature', type=float, default=4.0,
+                        help='Temperature for distillation softmax')
+    parser.add_argument('--distillation_alpha', type=float, default=0.7,
+                        help='Weight for KL divergence loss')
+    parser.add_argument('--distillation_beta', type=float, default=0.3,
+                        help='Weight for cross-entropy loss')
 
     parser.add_argument('--n_generative_eval_batches', type=int, default=1)
 
@@ -388,7 +400,18 @@ def main():
         model, tokenizer = add_jump_tokens(model, tokenizer, num_jump_tokens=args.num_jump_tokens)
 
     # Load Data
-    train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)
+    if args.distillation:
+        print("Loading distillation data...")
+        train_dataloader, val_dataloader, test_dataloader = load_distillation_data(
+            train_pickle_path=args.train_path,
+            val_pickle_path=args.val_path,
+            tokenizer=tokenizer,
+            batch_size=args.batch_size,
+            max_length=args.max_len_train if args.max_len_train > 0 else None,
+            test_pickle_path=args.test_path
+        )
+    else:
+        train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)
 
     # Create Optimizer
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
@@ -397,7 +420,9 @@ def main():
     optimizer = torch.optim.AdamW(trainable_params, lr=args.lr, **extra_args)
 
     # Train
-    if args.train_type == "full-cot":
+    if args.distillation:
+        trainer = DistillationTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
+    elif args.train_type == "full-cot":
         trainer = SimpleTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
     elif args.removal_type == "step-by-step":
         trainer = StepByStepTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
