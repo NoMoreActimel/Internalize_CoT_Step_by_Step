@@ -8,62 +8,62 @@ from data_huggingface import CoTChunksHFDataset
 def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     dataset_kwargs = {}
 
-    if getattr(args, 'huggingface_dataset'):
-        # assert getattr(args, 'removal_type') == 'random-chunks' or getattr(args, 'removal_type') == 'random-masks'
-        dataset_kwargs["path"] = getattr(args, 'path')
-        dataset_kwargs["name"] = getattr(args, 'name')
+    if getattr(args, 'huggingface_dataset', None):
+        # assert getattr(args, 'removal_type', None) == 'random-chunks' or getattr(args, 'removal_type', None) == 'random-masks'
+        dataset_kwargs["path"] = getattr(args, 'path', None)
+        dataset_kwargs["name"] = getattr(args, 'name', None)
         dataset_kwargs["split"] = split
-        dataset_kwargs["data_files"] = getattr(args, 'data_files')
-        dataset_kwargs["max_samples"] = getattr(args, 'max_samples')
-        dataset_kwargs["shuffle"] = getattr(args, 'shuffle')
-        dataset_kwargs["shuffle_seed"] = getattr(args, 'shuffle_seed')
-        dataset_kwargs["question_key"] = getattr(args, 'question_key')
-        dataset_kwargs["answer_key"] = getattr(args, 'answer_key')
+        dataset_kwargs["data_files"] = getattr(args, 'data_files', None)
+        dataset_kwargs["max_samples"] = getattr(args, 'max_samples', None)
+        dataset_kwargs["shuffle"] = getattr(args, 'shuffle', None)
+        dataset_kwargs["shuffle_seed"] = getattr(args, 'shuffle_seed', None)
+        dataset_kwargs["question_key"] = getattr(args, 'question_key', None)
+        dataset_kwargs["answer_key"] = getattr(args, 'answer_key', None)
     else:
-        dataset_kwargs["path"] = getattr(args, f"{split}_path")
+        dataset_kwargs["path"] = getattr(args, f"{split}_path", None)
     
     if ";" in split:
         split = split.split(";")[1]
-    split_max_size = getattr(args, f"{split}_max_size")
-    default_max_size = getattr(args, 'max_size') if split == "train" else -1
+    split_max_size = getattr(args, f"{split}_max_size", None)
+    default_max_size = getattr(args, 'max_size', None) if split == "train" else -1
     dataset_kwargs["max_size"] = default_max_size if split_max_size is None else split_max_size
 
-    dataset_kwargs["max_length"] = getattr(args, 'max_len_train')
+    dataset_kwargs["max_length"] = getattr(args, 'max_len_train', None)
 
-    dataset_kwargs["pad_cot"] = getattr(args, 'pad_cot')
-    dataset_kwargs["max_cot_length"] = getattr(args, 'max_cot_length')
-    dataset_kwargs["cot_pad_id"] = getattr(args, 'cot_pad_id')
+    dataset_kwargs["pad_cot"] = getattr(args, 'pad_cot', None)
+    dataset_kwargs["max_cot_length"] = getattr(args, 'max_cot_length', None)
+    dataset_kwargs["cot_pad_id"] = getattr(args, 'cot_pad_id', None)
 
-    dataset_kwargs["pad_query"] = getattr(args, 'pad_query')
-    dataset_kwargs["max_query_length"] = getattr(args, 'max_query_length')
-    dataset_kwargs["query_pad_id"] = getattr(args, 'query_pad_id')
+    dataset_kwargs["pad_query"] = getattr(args, 'pad_query', None)
+    dataset_kwargs["max_query_length"] = getattr(args, 'max_query_length', None)
+    dataset_kwargs["query_pad_id"] = getattr(args, 'query_pad_id', None)
 
-    dataset_kwargs["json_dataset"] = getattr(args, 'json_dataset')
-    dataset_kwargs["chunk_size"] = getattr(args, 'chunk_size') if getattr(args, 'removal_type') == 'random-chunks' else None
-    dataset_kwargs["num_new_tokens"] = getattr(args, 'num_new_tokens') if getattr(args, 'removal_type') == 'random-chunks' else 0
-    dataset_kwargs["new_token_ids"] = new_token_ids if getattr(args, 'removal_type') == 'random-chunks' else None
+    dataset_kwargs["json_dataset"] = getattr(args, 'json_dataset', None)
+    dataset_kwargs["chunk_size"] = getattr(args, 'chunk_size', None) if getattr(args, 'removal_type', None) == 'random-chunks' else None
+    dataset_kwargs["num_new_tokens"] = getattr(args, 'num_new_tokens', None) if getattr(args, 'removal_type', None) == 'random-chunks' else 0
+    dataset_kwargs["new_token_ids"] = new_token_ids if getattr(args, 'removal_type', None) == 'random-chunks' else None
 
-    dataset_kwargs["random_cot_strategy"] = getattr(args, 'random_cot_strategy')
-    dataset_kwargs["random_cot_length"] = getattr(args, 'random_cot_length')
+    dataset_kwargs["random_cot_strategy"] = getattr(args, 'random_cot_strategy', None)
+    dataset_kwargs["random_cot_length"] = getattr(args, 'random_cot_length', None)
 
     # In case of huggingface dataset, always use our CoTChunksHFDataset instead of native iCoT one
-    ours_sbs_flag = (getattr(args, 'removal_type') == 'step-by-step') \
-        and (getattr(args, 'huggingface_dataset') \
-        or getattr(args, 'json_dataset'))
+    ours_sbs_flag = (getattr(args, 'removal_type', None) == 'step-by-step') \
+        and (getattr(args, 'huggingface_dataset', None) \
+        or getattr(args, 'json_dataset', None))
 
-    if getattr(args, 'random_cot'):
+    if getattr(args, 'random_cot', None):
         DatasetClass = CoTDatasetRandomCot
         CollateClass = CoTDataCollatorRandomCot
-    elif getattr(args, 'removal_type') == 'step-by-step' and not ours_sbs_flag:
+    elif getattr(args, 'removal_type', None) == 'step-by-step' and not ours_sbs_flag:
         DatasetClass = CoTDataset
         CollateClass = CoTDataCollator
-    elif getattr(args, 'removal_type') == 'random-chunks' or getattr(args, 'removal_type') == 'random-masks' or ours_sbs_flag:
-        DatasetClass = CoTChunksHFDataset if getattr(args, 'huggingface_dataset') else CoTDatasetChunks
+    elif getattr(args, 'removal_type', None) == 'random-chunks' or getattr(args, 'removal_type', None) == 'random-masks' or ours_sbs_flag:
+        DatasetClass = CoTChunksHFDataset if getattr(args, 'huggingface_dataset', None) else CoTDatasetChunks
         CollateClass = CoTDataCollatorChunks
     else:
         raise ValueError(f'''
             args.removal_type must be either "step-by-step", "random-chunks", "random-masks",
-            found {getattr(args, "removal_type")}
+            found {getattr(args, "removal_type", None)}
         ''')
     
     dataset = DatasetClass(tokenizer, **dataset_kwargs)
