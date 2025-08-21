@@ -235,7 +235,7 @@ class CoTDatasetRandomCot(Dataset):
         elif self.random_cot_strategy == "fixed_permutation_random_digits_from_question":
             if self.fixed_permutation is None:
                 digits = sorted(extract_digits_from_question(question))
-                self.fixed_permutation = random.choices(list(range(digits)), k=self.random_cot_length)
+                self.fixed_permutation = random.choices(list(range(len(digits))), k=self.random_cot_length)
             return generate_random_cot_fixed_permutation_random_digits_from_question(
                 question, self.random_cot_length, self.fixed_permutation
             )
