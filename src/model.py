@@ -354,8 +354,8 @@ class ImplicitModel(nn.Module):
             if insert_position > 0:
                 beam_output = self.base_model.generate(**generate_kwargs)
                 if return_logits:
-                    beam_output = beam_output.sequences
                     all_logits.append(torch.stack(beam_output.scores, dim=1))
+                    beam_output = beam_output.sequences
             
             generate_kwargs["input_ids"] = self.insert_const_ids(beam_output, ids_to_insert, logits_processor, all_logits) # appends to all_logits
             
@@ -379,9 +379,9 @@ class ImplicitModel(nn.Module):
         t1 = time.time()
 
         if return_logits:
-            beam_output = beam_output.sequences
             all_logits.append(torch.stack(beam_output.scores, dim=1))
             all_logits = torch.cat(all_logits, dim=1)
+            beam_output = beam_output.sequences
         
         total_forward_time = t1 - t0
         total_generated = beam_output.shape[-1] - input_ids.shape[-1]
