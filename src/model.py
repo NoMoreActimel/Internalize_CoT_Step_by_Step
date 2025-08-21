@@ -46,9 +46,9 @@ class ImplicitModel(nn.Module):
         # Modified externally, together with tokenizer
         self.jump_token_ids = None
 
-        self.split_ids = self.tokenizer.encode(COT_ANSWER_SPLIT_PATTERN, add_special_tokens=False)
+        self.split_ids = torch.tensor(self.tokenizer.encode(COT_ANSWER_SPLIT_PATTERN, add_special_tokens=False))
         print(f"Model generate with random insertions will use the first of split_ids: {self.split_ids}.")
-        if self.split_ids[0] == self.tokenizer.encode(" ", add_special_tokens=False):
+        if self.split_ids[0].item() == self.tokenizer.encode(" ", add_special_tokens=False)[0]:
             warnings.warn(f"Model's tokenizer encodes split_ids so that the first token is equivalent to space, do no use random insertions!")
     
     def become_peft_model(self):
@@ -198,7 +198,7 @@ class ImplicitModel(nn.Module):
             input_ids = self._predict_cot_with_NTP(input_ids, cot_start_position, cot_end_position)
         
         if force_cot_answer_split:
-            input_ids = torch.cat([input_ids, self.split_ids], dim=1)
+            input_ids = torch.cat([input_ids, self.split_ids.to(device=input_ids.device).unsqueeze(0).expand(input_ids.shape[0], -1)], dim=1)
             if position_ids is not None:
                 last_pos = position_ids[0, -1].item()
                 extension = torch.arange(
@@ -286,6 +286,10 @@ class ImplicitModel(nn.Module):
         if max_cot_tokens is not None:
             assert insert_const_ids_in_cot is False, \
                 "Max cot tokens runs through generate_with_insertion by itself, no support for additional insertion"
+            ids_to_insert = torch.cat([
+                torch.tensor([self.tokenizer.eos_token_id], device=input_ids.device),
+                self.split_ids.to(device=input_ids.device)
+            ], dim=0)
             return self._generate_with_insertion(
                 input_ids,
                 generation_config,
@@ -295,7 +299,7 @@ class ImplicitModel(nn.Module):
                 stopping_criteria,
                 insert_const_ids_in_cot=True,
                 insert_position=max_cot_tokens,
-                ids_to_insert=torch.cat([self.tokenizer.eos_token_id, self.split_ids], dim=0),
+                ids_to_insert=ids_to_insert,
                 return_logits=return_logits
             )
         
@@ -326,12 +330,7 @@ class ImplicitModel(nn.Module):
             return_logits
     ):
         #print(f"[PROFILE] EOS in inputs: {(input_ids == self.tokenizer.eos_token_id)}")
-       
-        if False:
-            print("\n[PARTIAL REMOVAL DEBUG, MODEL.GENERATE]")
-            print(f"Insert position: {insert_position}")
-            print(f"Ids to insert shape: {ids_to_insert.shape}\n")
-
+        
         first_generation = insert_position
         second_generation = max_new_tokens - insert_position
 
@@ -387,8 +386,9 @@ class ImplicitModel(nn.Module):
         total_forward_time = t1 - t0
         total_generated = beam_output.shape[-1] - input_ids.shape[-1]
         print(f"[PROFILE] total forward calls: {total_generated}  total forward time: {total_forward_time:.3f}s")
-        #print(f"[PROFILE] EOS in outputs: {(beam_output == self.tokenizer.eos_token_id)}")
         #print(f"[PROFILE] num EOS in outputs: {(beam_output == self.tokenizer.eos_token_id).sum(dim=-1)}")
+        print(f"[PROFILE] EOS in outputs: {(beam_output == self.tokenizer.eos_token_id)}")
+        
         if return_logits: 
             return beam_output, all_logits
         return beam_output
@@ -415,7 +415,7 @@ class ImplicitModel(nn.Module):
         eos_id = torch.tensor(self.tokenizer.eos_token_id, device=input_ids.device)
         
         # To track the CoT | answer split
-        split_ids = torch.tensor(self.split_ids, device=input_ids.device)
+        split_ids = self.split_ids.to(device=input_ids.device)
         split_ids = split_ids.unsqueeze(0).expand(input_ids.shape[0], *split_ids.shape)
         split_flag = False
 
@@ -754,3 +754,4 @@ class ImplicitModel(nn.Module):
 
         state_dict = self.state_dict()
         torch.save(state_dict, os.path.join(save_directory, 'state_dict.bin'))
+
