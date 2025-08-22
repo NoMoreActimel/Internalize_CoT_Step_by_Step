@@ -680,7 +680,7 @@ class ImplicitModel(nn.Module):
         insert_bs = ids_to_insert.shape[0]
         if insert_bs != outputs_bs:
             N = outputs_bs // insert_bs
-            ids_to_insert = ids_to_insert.expand(N, ids_to_insert.shape[1:])
+            ids_to_insert = ids_to_insert.expand(N, *ids_to_insert.shape[1:])
         
         ids_to_insert[done_cot, :] = eos_token_id
         output_ids = torch.cat([output_ids, ids_to_insert], dim=1)
@@ -707,7 +707,7 @@ class ImplicitModel(nn.Module):
                 i, j = i_flat // L, i_flat % L
                 inserted_logits[i, j, token_id] = 10.0
 
-        logits_list.append(torch.stack(inserted_logits))
+        logits_list.append(inserted_logits)
 
     def reinit_processor_criteria(self, logits_processor, stopping_criteria):
         if logits_processor is None:
