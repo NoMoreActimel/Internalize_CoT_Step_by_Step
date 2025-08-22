@@ -356,17 +356,18 @@ class ImplicitModel(nn.Module):
                 if return_logits:
                     all_logits.append(torch.stack(beam_output.scores, dim=1))
                     beam_output = beam_output.sequences
-            
+                
+            if self._check_double_eos(beam_output):
+                print("[PROFILE] Second EOS reached after insertion, skipping insertion and second generation")
+                all_logits = torch.cat(all_logits, dim=1) if return_logits and all_logits else None
+                return beam_output, all_logits if return_logits else beam_output
+
             generate_kwargs["input_ids"] = self.insert_const_ids(beam_output, ids_to_insert, logits_processor, all_logits) # appends to all_logits
             
-            eos_count = (generate_kwargs["input_ids"] == self.tokenizer.eos_token_id).sum(dim=-1)
-            # If we have 2 or more EOS tokens, we're done (one after CoT, one after answer)
-            if (eos_count >= 2).all():
+            if self._check_double_eos(generate_kwargs["input_ids"]):
                 print("[PROFILE] Second EOS reached after insertion, skipping second generation")
-                if return_logits and all_logits:
-                    all_logits = torch.cat(all_logits, dim=1)
-                    return generate_kwargs["input_ids"], all_logits
-                return generate_kwargs["input_ids"]
+                all_logits = torch.cat(all_logits, dim=1) if return_logits and all_logits else None
+                return generate_kwargs["input_ids"], all_logits if return_logits else generate_kwargs["input_ids"]
 
             generate_kwargs["logits_processor"], generate_kwargs["stopping_criteria"] = self.reinit_processor_criteria(
                 logits_processor, stopping_criteria
@@ -392,6 +393,11 @@ class ImplicitModel(nn.Module):
         if return_logits: 
             return beam_output, all_logits
         return beam_output
+    
+    def _check_double_eos(self, input_ids):
+        # If we have 2 or more EOS tokens, we're done (one after CoT, one after answer)
+        eos_count = (input_ids == self.tokenizer.eos_token_id).sum(dim=-1)
+        return (eos_count >= 2).all()
 
     def _generate_with_random_insertion(
             self,
@@ -680,7 +686,7 @@ class ImplicitModel(nn.Module):
         insert_bs = ids_to_insert.shape[0]
         if insert_bs != outputs_bs:
             N = outputs_bs // insert_bs
-            ids_to_insert = ids_to_insert.expand(N, ids_to_insert.shape[1:])
+            ids_to_insert = ids_to_insert.expand(N, *ids_to_insert.shape[1:])
         
         ids_to_insert[done_cot, :] = eos_token_id
         output_ids = torch.cat([output_ids, ids_to_insert], dim=1)
@@ -707,7 +713,7 @@ class ImplicitModel(nn.Module):
                 i, j = i_flat // L, i_flat % L
                 inserted_logits[i, j, token_id] = 10.0
 
-        logits_list.append(torch.stack(inserted_logits))
+        logits_list.append(inserted_logits)
 
     def reinit_processor_criteria(self, logits_processor, stopping_criteria):
         if logits_processor is None:

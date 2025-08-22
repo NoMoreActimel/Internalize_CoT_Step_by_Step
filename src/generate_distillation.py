@@ -23,6 +23,97 @@ torch.backends.cudnn.allow_tf32 = True
 logging.disable(logging.WARNING)
 
 
+def analyze_generation_stats(sequences, tokenizer):
+    """
+    Analyze CoT and answer lengths from generated sequences.
+    
+    Args:
+        sequences: List of generated sequence tensors
+        tokenizer: Tokenizer
+    
+    Returns:
+        dict: Statistics about CoT and answer lengths
+    """
+    cot_lengths = []
+    answer_lengths = []
+    total_lengths = []
+    
+    for seq in sequences:
+        # Find EOS positions - structure is: question <eos> cot <eos> answer <eos>
+        eos_positions = (seq == tokenizer.eos_token_id).nonzero(as_tuple=True)[0]
+        
+        if len(eos_positions) >= 2:
+            # First EOS ends question, second EOS ends CoT
+            first_eos = eos_positions[0].item()
+            second_eos = eos_positions[1].item()
+            
+            # CoT length is between first and second EOS
+            cot_length = second_eos - first_eos - 1
+            cot_lengths.append(cot_length)
+            
+            # Answer length is from second EOS to end (or third EOS if exists)
+            if len(eos_positions) >= 3:
+                third_eos = eos_positions[2].item()
+                answer_length = third_eos - second_eos - 1
+            else:
+                # No third EOS, answer goes to end of sequence
+                answer_length = len(seq) - second_eos - 1
+            
+            answer_lengths.append(answer_length)
+            total_lengths.append(len(seq))
+        else:
+            # Incomplete generation - just track total length
+            total_lengths.append(len(seq))
+    
+    stats = {
+        'cot_lengths': {
+            'mean': np.mean(cot_lengths) if cot_lengths else 0,
+            'std': np.std(cot_lengths) if cot_lengths else 0,
+            'min': min(cot_lengths) if cot_lengths else 0,
+            'max': max(cot_lengths) if cot_lengths else 0,
+            'count': len(cot_lengths)
+        },
+        'answer_lengths': {
+            'mean': np.mean(answer_lengths) if answer_lengths else 0,
+            'std': np.std(answer_lengths) if answer_lengths else 0,
+            'min': min(answer_lengths) if answer_lengths else 0,
+            'max': max(answer_lengths) if answer_lengths else 0,
+            'count': len(answer_lengths)
+        },
+        'total_lengths': {
+            'mean': np.mean(total_lengths) if total_lengths else 0,
+            'std': np.std(total_lengths) if total_lengths else 0,
+            'min': min(total_lengths) if total_lengths else 0,
+            'max': max(total_lengths) if total_lengths else 0,
+            'count': len(total_lengths)
+        },
+        'incomplete_generations': len(sequences) - len(cot_lengths)
+    }
+    
+    return stats
+
+
+def print_generation_stats(stats, split_name):
+    """Print generation statistics in a readable format."""
+    print(f"\n=== {split_name.upper()} Generation Statistics ===")
+    print(f"Total samples: {stats['total_lengths']['count']}")
+    print(f"Complete generations: {stats['cot_lengths']['count']}")
+    print(f"Incomplete generations: {stats['incomplete_generations']}")
+    
+    if stats['cot_lengths']['count'] > 0:
+        print(f"\nCoT Lengths:")
+        print(f"  Mean: {stats['cot_lengths']['mean']:.1f} ± {stats['cot_lengths']['std']:.1f}")
+        print(f"  Range: {stats['cot_lengths']['min']} - {stats['cot_lengths']['max']}")
+        
+        print(f"\nAnswer Lengths:")
+        print(f"  Mean: {stats['answer_lengths']['mean']:.1f} ± {stats['answer_lengths']['std']:.1f}")
+        print(f"  Range: {stats['answer_lengths']['min']} - {stats['answer_lengths']['max']}")
+    
+    print(f"\nTotal Sequence Lengths:")
+    print(f"  Mean: {stats['total_lengths']['mean']:.1f} ± {stats['total_lengths']['std']:.1f}")
+    print(f"  Range: {stats['total_lengths']['min']} - {stats['total_lengths']['max']}")
+
+
 def load_model_from_checkpoint(checkpoint_path, device):
     """Load model from checkpoint file (.pth)"""
     print(f"Loading checkpoint from {checkpoint_path}")
@@ -232,7 +323,7 @@ def apply_cot_masking(input_ids, tokenizer, max_cot_length, device, masking_type
 
 
 @torch.no_grad()
-def generate_distillation_data(dataloader, model, tokenizer, device, args):
+def generate_distillation_data(dataloader, model, tokenizer, device, split_name, args):
     """
     Generate CoT and answers with logits for the whole dataset for distillation.
     """
@@ -278,14 +369,26 @@ def generate_distillation_data(dataloader, model, tokenizer, device, args):
             generated_logits = None
         
         # Store results
-        all_outputs.append(generated_sequences.cpu())
-        if generated_logits is not None:
-            all_logits.append(generated_logits.cpu())
-        all_original_inputs.append(input_ids_full.cpu())
+        if isinstance(generated_sequences, torch.Tensor):
+            all_outputs.append(generated_sequences.cpu())
+            if generated_logits is not None:
+                all_logits.append(generated_logits.cpu())
+            all_original_inputs.append(input_ids_full.cpu())
+        else:
+            for seq, logits, input_ids in zip(generated_sequences, generated_logits, input_ids_full):
+                all_outputs.append(seq.cpu())
+                if logits is not None:
+                    all_logits.append(logits.cpu())
+                all_original_inputs.append(input_ids.cpu())
+        
+        if batch_idx % 100 == 0:
+            print_generation_stats(analyze_generation_stats(all_outputs, tokenizer), split_name)
         
         if batch_idx % 10 == 0:
             print(f"Processed batch {batch_idx}/{len(dataloader)}")
-    
+
+    print_generation_stats(analyze_generation_stats(all_outputs, tokenizer), split_name)
+
     return {
         'generated_sequences': all_outputs,
         'generated_logits': all_logits if all_logits else None,
@@ -422,7 +525,7 @@ def main():
             
         print(f"\n=== Generating {split_name} split ===")
         
-        results = generate_distillation_data(dataloader, model, tokenizer, device, args)
+        results = generate_distillation_data(dataloader, model, tokenizer, device, split_name, args)
         
         # Save results
         output_file = os.path.join(args.output_dir, f"{args.output_name}_{split_name}.pkl")
