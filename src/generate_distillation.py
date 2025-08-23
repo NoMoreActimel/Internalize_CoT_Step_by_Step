@@ -405,11 +405,21 @@ def generate_distillation_data(dataloader, model, tokenizer, device, output_dir,
         
         sequence_samples, logit_samples = flatten_batch_to_samples(generated_sequences, generated_logits)
 
+        print("Generation examples:")
         for i in range(input_ids_full.shape[0]):
             chunk_original_inputs.append(input_ids_full[i].cpu())
             chunk_outputs.append(sequence_samples[i].cpu())
             chunk_logits.append(logit_samples[i].cpu())
             sample_count += 1
+
+            if i < 3:
+                gen_inputs = tokenizer.decode(input_ids_for_generation[i], skip_special_tokens=True)
+                orig_text = tokenizer.decode(input_ids_full[i], skip_special_tokens=True)
+                gen_text = tokenizer.decode(sequence_samples[i], skip_special_tokens=True)
+                print(f"Input: {gen_inputs}")
+                print(f"Target: {orig_text}")
+                print(f"Predicted: {gen_text}")
+            print("-" * 50)
 
         if sample_count >= chunk_size:
             chunk_stats = analyze_generation_stats(chunk_outputs, tokenizer)
