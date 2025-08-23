@@ -263,6 +263,7 @@ class OpenMathInstructDataset(HuggingFacePreprocessDataset):
 
         self.filter_column_name = self.kwargs.get("filter_column_name", None)
         self.filter_column_values = self.kwargs.get("filter_column_values", None).strip().split(',')
+        self._filter_column_name(self.filter_column_name, self.filter_column_values)
 
         mean_length = 0
         max_length = 0
@@ -292,14 +293,17 @@ class OpenMathInstructDataset(HuggingFacePreprocessDataset):
             
         print("-" * 60)
 
-    def _filter_correct(self):
-        if self.filter_column_name is None:
-            return None
+    def _filter_column_name(self, filter_column_name, filter_column_values):
+        if filter_column_name is None:
+            return
         
+        dataset_size = len(self.dataset)
         self.dataset = [
             item for item in self.dataset
-            if item[self.filter_column_name] in self.filter_column_values
+            if item[filter_column_name] in filter_column_values
         ]
+        print(f"Filtered dataset by {filter_column_name} with values {filter_column_values}, "
+              f"size reduced from {dataset_size} to {len(self.dataset)} samples!")
     
     def _preprocess_format(self):
         items = []
