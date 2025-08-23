@@ -1,6 +1,7 @@
 import math
 import argparse
 import os
+import gc
 import sys
 import tqdm
 import inspect
@@ -92,7 +93,6 @@ def analyze_generation_stats(sequences, tokenizer):
     
     return stats
 
-
 def print_generation_stats(stats, split_name):
     """Print generation statistics in a readable format."""
     print(f"\n=== {split_name.upper()} Generation Statistics ===")
@@ -112,6 +112,38 @@ def print_generation_stats(stats, split_name):
     print(f"\nTotal Sequence Lengths:")
     print(f"  Mean: {stats['total_lengths']['mean']:.1f} ± {stats['total_lengths']['std']:.1f}")
     print(f"  Range: {stats['total_lengths']['min']} - {stats['total_lengths']['max']}")
+
+
+def flatten_batch_to_samples(sequences, logits=None):
+    """
+    sequences: Either a tensor [batch_size, seq_len] or list of tensors
+    logits: Either a tensor [batch_size, seq_len, vocab_size] or list of tensors, or None
+    return: (list of sequence tensors, list of logit tensors or None)
+    """
+    sequence_samples = []
+    logit_samples = []
+    
+    if isinstance(sequences, list):
+        sequence_samples = sequences
+        if logits is not None:
+            for i in range(len(sequences)):
+                logit_samples.append(logits[i])
+    else:
+        for i in range(sequences.shape[0]):
+            sequence_samples.append(sequences[i])
+            if logits is not None:
+                logit_samples.append(logits[i])
+    
+    return sequence_samples, logit_samples if logits is not None else None
+
+
+def save_chunk(chunk_data, output_dir, chunk_idx):
+    """Save a chunk of data to disk."""
+    chunk_file = os.path.join(output_dir, f"chunk_{chunk_idx:04d}.pkl")
+    with open(chunk_file, 'wb') as f:
+        pickle.dump(chunk_data, f)
+    print(f"Saved chunk {chunk_idx} to {chunk_file}")
+    return chunk_file
 
 
 def load_model_from_checkpoint(checkpoint_path, device):
@@ -323,26 +355,30 @@ def apply_cot_masking(input_ids, tokenizer, max_cot_length, device, masking_type
 
 
 @torch.no_grad()
-def generate_distillation_data(dataloader, model, tokenizer, device, split_name, args):
+def generate_distillation_data(dataloader, model, tokenizer, device, output_dir, split_name, args):
     """
     Generate CoT and answers with logits for the whole dataset for distillation.
     """
     model.eval()
     
-    all_outputs = []
-    all_logits = []
-    all_original_inputs = []
+    chunk_outputs = []
+    chunk_logits = []
+    chunk_original_inputs = []
+    
+    sample_count = 0
+    chunk_idx = 0
+    chunk_files = []
+
+    chunk_size = getattr(args, "chunk_size", 1000)
     
     print(f"Generating distillation data for {len(dataloader)} batches...")
     
     for batch_idx, batch in tqdm.tqdm(enumerate(dataloader)):
         input_ids_full = batch['input_ids'].to(device)
         
-        # Split by first EOS using get_sep_positions to not pass CoT and answer into model
         first_sep_positions = get_sep_position(input_ids_full, tokenizer.eos_token_id)
-        input_ids_for_generation = input_ids_full[:, :first_sep_positions.max()+1]  # Only question + first EOS
+        input_ids_for_generation = input_ids_full[:, :first_sep_positions.max()+1]
         
-        # Apply CoT masking/prefix insertion based on max_cot_length
         if args.max_cot_length > 0:
             input_ids_for_generation, prefixes = apply_cot_masking(
                 input_ids_full, tokenizer, args.max_cot_length, device, 
@@ -352,7 +388,6 @@ def generate_distillation_data(dataloader, model, tokenizer, device, split_name,
             first_sep_positions_new = get_sep_position(input_ids_for_generation, tokenizer.eos_token_id)
             input_ids_for_generation = input_ids_for_generation[:, :first_sep_positions_new.max()+1]
         
-        # Generate with return_logits=True
         generation_outputs = model.generate(
             input_ids=input_ids_for_generation,
             max_new_tokens=args.max_new_tokens,
@@ -368,32 +403,58 @@ def generate_distillation_data(dataloader, model, tokenizer, device, split_name,
             generated_sequences = generation_outputs
             generated_logits = None
         
-        # Store results
-        if isinstance(generated_sequences, torch.Tensor):
-            all_outputs.append(generated_sequences.cpu())
-            if generated_logits is not None:
-                all_logits.append(generated_logits.cpu())
-            all_original_inputs.append(input_ids_full.cpu())
-        else:
-            for seq, logits, input_ids in zip(generated_sequences, generated_logits, input_ids_full):
-                all_outputs.append(seq.cpu())
-                if logits is not None:
-                    all_logits.append(logits.cpu())
-                all_original_inputs.append(input_ids.cpu())
-        
-        if batch_idx % 100 == 0:
-            print_generation_stats(analyze_generation_stats(all_outputs, tokenizer), split_name)
+        sequence_samples, logit_samples = flatten_batch_to_samples(generated_sequences, generated_logits)
+
+        for i in range(input_ids_full.shape[0]):
+            chunk_original_inputs.append(input_ids_full[i].cpu())
+            chunk_outputs.append(sequence_samples[i].cpu())
+            chunk_logits.append(logit_samples[i].cpu())
+            sample_count += 1
+
+        if sample_count >= chunk_size:
+            chunk_stats = analyze_generation_stats(chunk_outputs, tokenizer)
+            print_generation_stats(chunk_stats, split_name)
+            
+            chunk_data = {
+                'generated_sequences': chunk_outputs,
+                'generated_logits': chunk_logits if chunk_logits else None,
+                'original_inputs': chunk_original_inputs,
+                'generation_stats': chunk_stats,
+                'chunk_idx': chunk_idx,
+                'sample_count': len(chunk_outputs)
+            }
+            
+            chunk_files.append(save_chunk(chunk_data, output_dir, chunk_idx))
+            
+            print(f"Chunk {chunk_idx}: {len(chunk_outputs)} samples, "
+                  f"avg CoT length: {chunk_stats['cot_lengths']['mean']:.1f}")
+            
+            chunk_outputs = []; chunk_logits = []; chunk_original_inputs = []; sample_count = 0
+            chunk_idx += 1
+            
+            gc.collect()
+            torch.cuda.empty_cache()
         
         if batch_idx % 10 == 0:
-            print(f"Processed batch {batch_idx}/{len(dataloader)}")
-
-    print_generation_stats(analyze_generation_stats(all_outputs, tokenizer), split_name)
-
-    return {
-        'generated_sequences': all_outputs,
-        'generated_logits': all_logits if all_logits else None,
-        'original_inputs': all_original_inputs
-    }
+            print(f"Processed batch {batch_idx}/{len(dataloader)}, samples: {sample_count + chunk_idx * chunk_size}")
+    
+    if chunk_outputs:
+        chunk_stats = analyze_generation_stats(chunk_outputs, tokenizer)
+        print_generation_stats(chunk_stats, split_name)
+        
+        chunk_data = {
+            'generated_sequences': chunk_outputs,
+            'generated_logits': chunk_logits if chunk_logits else None,
+            'original_inputs': chunk_original_inputs,
+            'generation_stats': chunk_stats,
+            'chunk_idx': chunk_idx,
+            'sample_count': len(chunk_outputs)
+        }
+        
+        chunk_file = save_chunk(chunk_data, output_dir, chunk_idx)
+        chunk_files.append(chunk_file)
+        
+        print(f"Final chunk {chunk_idx}: {len(chunk_outputs)} samples")
 
 
 def parse_tuple_list(arg):
@@ -473,14 +534,12 @@ def main():
     parser.add_argument('--val_max_size', type=int, default=None)
     parser.add_argument('--test_max_size', type=int, default=None)
     
-    # Other arguments
     parser.add_argument('--seed', type=int, default=1234)
-    parser.add_argument('--chunk_size', type=int, default=8)
+    parser.add_argument('--chunk_size', type=int, default=1000)
     parser.add_argument('--num_new_tokens', type=int, default=1000)
     
     args = parser.parse_args()
     
-    # Validate arguments
     if args.from_pretrained is None and args.from_pretrained_checkpoint is None:
         parser.error("Must specify either --from_pretrained or --from_pretrained_checkpoint")
     
@@ -512,43 +571,17 @@ def main():
     print("MODEL ARCHITECTURE:")
     print(model)
     
-    # Load data
     train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)
     
-    # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
-    
-    # Generate distillation data for each split
-    for split_name, dataloader in [("train", train_dataloader), ("val", val_dataloader)]:
+    for split_name, dataloader in [("train", train_dataloader), ("val", val_dataloader), ("test", test_dataloader)]:
         if dataloader is None:
             continue
-            
         print(f"\n=== Generating {split_name} split ===")
-        
-        results = generate_distillation_data(dataloader, model, tokenizer, device, split_name, args)
-        
-        # Save results
-        output_file = os.path.join(args.output_dir, f"{args.output_name}_{split_name}.pkl")
-        with open(output_file, 'wb') as f:
-            pickle.dump(results, f)
-        
-        print(f"Saved {split_name} results to {output_file}")
-        print(f"Generated sequences: {len(results['generated_sequences'])} batches")
-        if results['generated_logits'] is not None:
-            print(f"Generated logits: {len(results['generated_logits'])} batches")
+        split_output_dir = f"{args.output_dir}/{split_name}"
+        os.makedirs(split_output_dir, exist_ok=True)
+        generate_distillation_data(dataloader, model, tokenizer, device, split_output_dir, split_name, args)
     
-    # Generate test split if available
-    if test_dataloader is not None:
-        print(f"\n=== Generating test split ===")
-        
-        results = generate_distillation_data(test_dataloader, model, tokenizer, device, args)
-        
-        output_file = os.path.join(args.output_dir, f"{args.output_name}_test.pkl")
-        with open(output_file, 'wb') as f:
-            pickle.dump(results, f)
-        
-        print(f"Saved test results to {output_file}")
-
     print(f"\nAll distillation data saved to {args.output_dir}")
 
 

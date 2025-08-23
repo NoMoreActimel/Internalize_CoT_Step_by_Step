@@ -1,3 +1,4 @@
+import glob
 import os
 import pickle
 import torch
@@ -13,7 +14,7 @@ class DistillationDataset(Dataset):
     - original_inputs: Original input sequences
     """
     
-    def __init__(self, pickle_path, tokenizer, max_length=None):
+    def __init__(self, data_dir, tokenizer, max_length=None):
         """
         Args:
             pickle_path: Path to pickle file with teacher generations
@@ -22,38 +23,25 @@ class DistillationDataset(Dataset):
         """
         self.tokenizer = tokenizer
         self.max_length = max_length
-        
-        # Load the pickled data
-        print(f"Loading distillation data from {pickle_path}")
-        with open(pickle_path, 'rb') as f:
-            self.data = pickle.load(f)
-        
-        # Flatten batched data into individual samples
         self.samples = []
-        
-        generated_sequences = self.data['generated_sequences']
-        generated_logits = self.data.get('generated_logits', None)
-        original_inputs = self.data['original_inputs']
-        
-        for batch_idx in range(len(generated_sequences)):
-            batch_sequences = generated_sequences[batch_idx]
-            batch_original = original_inputs[batch_idx]
-            batch_logits = generated_logits[batch_idx] if generated_logits is not None else None
-            
-            batch_size = batch_sequences.shape[0]
-            
-            for sample_idx in range(batch_size):
-                sample = {
-                    'generated_sequence': batch_sequences[sample_idx],
-                    'original_input': batch_original[sample_idx],
-                }
-                
-                if batch_logits is not None:
-                    sample['teacher_logits'] = batch_logits[sample_idx]
-                
-                self.samples.append(sample)
-        
-        print(f"Loaded {len(self.samples)} samples for distillation")
+        self._load_all_chunks()
+    
+    def _load_all_chunks(self):
+        print(f"Loading distillation data from all chunk pickle files in {self.data_dir}")
+        chunk_pattern = os.path.join(self.data_dir, f"chunk_*.pkl")
+        chunk_files = sorted(glob.glob(chunk_pattern))
+        print(f"Found {len(self.chunk_files)} chunk files!")
+        for chunk_file in chunk_files:
+            print(f"Loading chunk: {chunk_file}")
+            with open(chunk_file, 'rb') as f:
+                chunk_data = pickle.load(f)
+            for i in range(len(chunk_data['generated_sequences'])):
+                self.samples.append({
+                    'generated_sequence': chunk_data['generated_sequences'][i],
+                    'teacher_logits': chunk_data['generated_logits'][i],
+                    'original_input': chunk_data['original_inputs'][i]
+                })
+        print(f"Loaded {len(self.samples)} samples for distillation from {self.data_dir}!")
     
     def __len__(self):
         return len(self.samples)
