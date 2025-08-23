@@ -185,6 +185,9 @@ class ImplicitModel(nn.Module):
                     max_cot_tokens, return_logits
                 )
                 beam_output.append(beam_output_i)
+            
+            if return_logits:
+                return [item[0] for item in beam_output], [item[1] for item in beam_output]
         return beam_output
     
     def _handle_inputs_with_cot(self, input_ids, position_ids, sep_positions, predict_cot_in_parallel=False, force_cot_answer_split=False, logits_processor=None):
@@ -369,6 +372,7 @@ class ImplicitModel(nn.Module):
                 all_logits = torch.cat(all_logits, dim=1) if return_logits and all_logits else None
                 return generate_kwargs["input_ids"], all_logits if return_logits else generate_kwargs["input_ids"]
 
+            print("[PROFILE] Proceeding to second generation")
             generate_kwargs["logits_processor"], generate_kwargs["stopping_criteria"] = self.reinit_processor_criteria(
                 logits_processor, stopping_criteria
             )
@@ -390,9 +394,7 @@ class ImplicitModel(nn.Module):
         #print(f"[PROFILE] num EOS in outputs: {(beam_output == self.tokenizer.eos_token_id).sum(dim=-1)}")
         print(f"[PROFILE] EOS in outputs: {(beam_output == self.tokenizer.eos_token_id)}")
         
-        if return_logits: 
-            return beam_output, all_logits
-        return beam_output
+        return beam_output, all_logits if return_logits else beam_output
     
     def _check_double_eos(self, input_ids):
         # If we have 2 or more EOS tokens, we're done (one after CoT, one after answer)
