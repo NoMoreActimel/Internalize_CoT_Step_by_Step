@@ -98,6 +98,8 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
             **kwargs
         )
 
+        self.kwargs = kwargs
+
         # Initialize tokenizer if token filtering is requested
         self.tokenizer = None
         if (filter_max_tokens is not None or filter_min_tokens is not None):
@@ -259,6 +261,9 @@ class OpenMathInstructDataset(HuggingFacePreprocessDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.filter_column_name = self.kwargs.get("filter_column_name", None)
+        self.filter_column_values = self.kwargs.get("filter_column_values", None).strip().split(',')
+
         mean_length = 0
         max_length = 0
         mean_tokens = 0
@@ -286,6 +291,15 @@ class OpenMathInstructDataset(HuggingFacePreprocessDataset):
             print("Max token length:", max_tokens)
             
         print("-" * 60)
+
+    def _filter_correct(self):
+        if self.filter_column_name is None:
+            return None
+        
+        self.dataset = [
+            item for item in self.dataset
+            if item[self.filter_column_name] in self.filter_column_values
+        ]
     
     def _preprocess_format(self):
         items = []
@@ -330,6 +344,12 @@ def main():
     
     parser.add_argument('--filter_key', type=str, default="answer", help="which field to check length against")
 
+    parser.add_argument('--filter_column_name', type=str, default=None, help="Key to filter by sample type in OpenMath-Instruct-2")
+    parser.add_argument(
+        '--filter_column_values', type=str, default=None,
+        help="Comma separated values of column, i.e. 'augmented_gsm8k,augmented_gsm8k"
+    )
+
     # output
     parser.add_argument('--output_dir', type=str, default="data/openmath/", required=True, help="where to write formatted datasets")
 
@@ -353,6 +373,8 @@ def main():
         "filter_max_tokens":    args.filter_max_tokens,
         "filter_min_tokens":    args.filter_min_tokens,
         "filter_key":           args.filter_key,
+        "filter_column_name":   args.filter_column_name,
+        "filter_column_values": args.filter_column_values,
         "tokenizer_model":      args.tokenizer_model,
         "json_dataset":         args.json_dataset
     }
