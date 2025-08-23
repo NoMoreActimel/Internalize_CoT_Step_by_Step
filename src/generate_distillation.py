@@ -137,9 +137,9 @@ def flatten_batch_to_samples(sequences, logits=None):
     return sequence_samples, logit_samples if logits is not None else None
 
 
-def save_chunk(chunk_data, output_dir, split_name, chunk_idx):
+def save_chunk(chunk_data, output_dir, chunk_idx):
     """Save a chunk of data to disk."""
-    chunk_file = os.path.join(output_dir, f"{split_name}_chunk_{chunk_idx:04d}.pkl")
+    chunk_file = os.path.join(output_dir, f"chunk_{chunk_idx:04d}.pkl")
     with open(chunk_file, 'wb') as f:
         pickle.dump(chunk_data, f)
     print(f"Saved chunk {chunk_idx} to {chunk_file}")
@@ -355,7 +355,7 @@ def apply_cot_masking(input_ids, tokenizer, max_cot_length, device, masking_type
 
 
 @torch.no_grad()
-def generate_distillation_data(dataloader, model, tokenizer, device, split_name, args):
+def generate_distillation_data(dataloader, model, tokenizer, device, output_dir, split_name, args):
     """
     Generate CoT and answers with logits for the whole dataset for distillation.
     """
@@ -424,7 +424,7 @@ def generate_distillation_data(dataloader, model, tokenizer, device, split_name,
                 'sample_count': len(chunk_outputs)
             }
             
-            chunk_files.append(save_chunk(chunk_data, args.output_dir, split_name, chunk_idx))
+            chunk_files.append(save_chunk(chunk_data, output_dir, chunk_idx))
             
             print(f"Chunk {chunk_idx}: {len(chunk_outputs)} samples, "
                   f"avg CoT length: {chunk_stats['cot_lengths']['mean']:.1f}")
@@ -451,7 +451,7 @@ def generate_distillation_data(dataloader, model, tokenizer, device, split_name,
             'sample_count': len(chunk_outputs)
         }
         
-        chunk_file = save_chunk(chunk_data, args.output_dir, split_name, chunk_idx)
+        chunk_file = save_chunk(chunk_data, output_dir, chunk_idx)
         chunk_files.append(chunk_file)
         
         print(f"Final chunk {chunk_idx}: {len(chunk_outputs)} samples")
@@ -578,8 +578,9 @@ def main():
         if dataloader is None:
             continue
         print(f"\n=== Generating {split_name} split ===")
-        generate_distillation_data(dataloader, model, tokenizer, device, split_name, args)
-    
+        split_output_dir = f"{args.output_dir}/{split_name}"
+        os.makedirs(split_output_dir, exist_ok=True)
+        generate_distillation_data(dataloader, model, tokenizer, device, split_output_dir, split_name, args)
     print(f"\nAll distillation data saved to {args.output_dir}")
 
 
