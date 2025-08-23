@@ -286,6 +286,11 @@ class OpenMathInstructDataset(HuggingFacePreprocessDataset):
             print("Max token length:", max_tokens)
             
         print("-" * 60)
+
+    def _filter_correct(self):
+        filter_column_name = self.kwargs.get("filter_column_name")
+        filter_column_values = self.kwargs.get("filter_column_values")
+         
     
     def _preprocess_format(self):
         items = []
