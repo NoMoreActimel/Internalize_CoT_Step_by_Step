@@ -403,12 +403,12 @@ def main():
     if args.distillation:
         print("Loading distillation data...")
         train_dataloader, val_dataloader, test_dataloader = load_distillation_data(
-            train_pickle_path=args.train_path,
-            val_pickle_path=args.val_path,
+            train_dir_path=args.train_path,
+            val_dir_path=args.val_path,
             tokenizer=tokenizer,
             batch_size=args.batch_size,
             max_length=args.max_len_train if args.max_len_train > 0 else None,
-            test_pickle_path=args.test_path
+            test_dir_path=args.test_path
         )
     else:
         train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)
