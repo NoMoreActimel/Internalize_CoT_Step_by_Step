@@ -111,8 +111,8 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
             print(f"Loading tokenizer: {tokenizer_model}")
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_model)
 
-        self._filter_correct()
-        self._preprocess_format()
+        self._filter_correct(**self.kwargs)
+        self._preprocess_format(**self.kwargs)
         
         # Apply string length filtering
         if filter_max_str_length is not None or filter_min_str_length is not None:
@@ -132,10 +132,10 @@ class HuggingFacePreprocessDataset(HuggingFaceDataset):
         if self.split_train_val_test:
             self.train, self.val, self.test = self._train_val_test_split()
 
-    def _preprocess_format(self):
+    def _preprocess_format(self, **kwargs):
         pass
 
-    def _filter_correct(self):
+    def _filter_correct(self, **kwargs):
         pass
     
     def filter_length(self, min_length, max_length, key, use_tokens=False):
@@ -236,7 +236,7 @@ class OpenR1MathDataset(HuggingFacePreprocessDataset):
             
         print("-" * 60)
     
-    def _preprocess_format(self):
+    def _preprocess_format(self, **kwargs):
         items = []
         for item in self.dataset:
             items.append({
@@ -245,7 +245,7 @@ class OpenR1MathDataset(HuggingFacePreprocessDataset):
             })
         self.dataset = items
 
-    def _filter_correct(self):
+    def _filter_correct(self, **kwargs):
         dataset_size = len(self.dataset)
         items = []
         for item in self.dataset:
@@ -260,10 +260,6 @@ class OpenR1MathDataset(HuggingFacePreprocessDataset):
 class OpenMathInstructDataset(HuggingFacePreprocessDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        self.filter_column_name = self.kwargs.get("filter_column_name", None)
-        self.filter_column_values = self.kwargs.get("filter_column_values", None).strip().split(',')
-        self._filter_column_name(self.filter_column_name, self.filter_column_values)
 
         mean_length = 0
         max_length = 0
@@ -293,7 +289,10 @@ class OpenMathInstructDataset(HuggingFacePreprocessDataset):
             
         print("-" * 60)
 
-    def _filter_column_name(self, filter_column_name, filter_column_values):
+    def _filter_correct(self, **kwargs):
+        filter_column_name = kwargs.get("filter_column_name", None)
+        filter_column_values = kwargs.get("filter_column_values", None).strip().split(',')
+
         if filter_column_name is None:
             return
         
@@ -305,7 +304,7 @@ class OpenMathInstructDataset(HuggingFacePreprocessDataset):
         print(f"Filtered dataset by {filter_column_name} with values {filter_column_values}, "
               f"size reduced from {dataset_size} to {len(self.dataset)} samples!")
     
-    def _preprocess_format(self):
+    def _preprocess_format(self, **kwargs):
         items = []
         for item in self.dataset:
             items.append({
