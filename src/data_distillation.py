@@ -127,26 +127,26 @@ class DistillationDataCollator:
         return result
 
 
-def load_distillation_data(train_pickle_path, val_pickle_path, tokenizer, batch_size, 
-                          max_length=None, test_pickle_path=None):
+def load_distillation_data(train_dir_path, val_dir_path, tokenizer, batch_size, 
+                          max_length=None, test_dir_path=None):
     """
     Load distillation datasets and create dataloaders.
     
     Args:
-        train_pickle_path: Path to training pickle file
-        val_pickle_path: Path to validation pickle file  
+        train_dir_path: Path to training pickle file
+        val_dir_path: Path to validation pickle file  
         tokenizer: Tokenizer to use
         batch_size: Batch size for dataloaders
         max_length: Maximum sequence length
-        test_pickle_path: Optional path to test pickle file
+        test_dir_path: Optional path to test pickle file
         
     Returns:
         Tuple of (train_dataloader, val_dataloader, test_dataloader)
     """
     
     # Create datasets
-    train_dataset = DistillationDataset(train_pickle_path, tokenizer, max_length)
-    val_dataset = DistillationDataset(val_pickle_path, tokenizer, max_length)
+    train_dataset = DistillationDataset(train_dir_path, tokenizer, max_length)
+    val_dataset = DistillationDataset(val_dir_path, tokenizer, max_length)
     
     # Create collator
     collate_fn = DistillationDataCollator(tokenizer)
@@ -167,8 +167,8 @@ def load_distillation_data(train_pickle_path, val_pickle_path, tokenizer, batch_
     )
     
     test_dataloader = None
-    if test_pickle_path and os.path.exists(test_pickle_path):
-        test_dataset = DistillationDataset(test_pickle_path, tokenizer, max_length)
+    if test_dir_path and os.path.exists(test_dir_path):
+        test_dataset = DistillationDataset(test_dir_path, tokenizer, max_length)
         test_dataloader = DataLoader(
             test_dataset,
             batch_size=batch_size,
