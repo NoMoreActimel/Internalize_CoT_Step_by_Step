@@ -286,6 +286,7 @@ def main():
     parser.add_argument('--eval_on_contiguous_masks', action='store_true', default=False)
 
     parser.add_argument('--intermediate_eval', action='store_true', default=False)
+    parser.add_argument('--manual_intermediate_eval_values', type=str, default='0.0,0.5,0.75,0.9,0.95,1.0')
 
     # Whether to put ## masked N ## hint or ## masked R% ## instead
     # This one is better but harder, as it exludes cheating on validation

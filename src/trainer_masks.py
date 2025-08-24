@@ -42,7 +42,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         if self.no_cot_stage or (not self.args.intermediate_eval):
             self.val_removal_ps = [0.0, 1.0]
         else:
-            self.val_removal_ps = [0.0, 0.5, 0.75, 0.9, 0.95, 1.0]
+            if self.args.manual_intermediate_eval_values:
+                self.val_removal_ps = [float(item) for item in self.args.manual_intermediate_eval_values]
+            else:
+                self.val_removal_ps = [0.0, 0.5, 0.75, 0.9, 0.95, 1.0]
 
         self.val_truncation_kwargs = {
             "eval_flag": self.joint_masked_distribution
