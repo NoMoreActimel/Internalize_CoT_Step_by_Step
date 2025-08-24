@@ -43,7 +43,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             self.val_removal_ps = [0.0, 1.0]
         else:
             if self.args.manual_intermediate_eval_values:
-                self.val_removal_ps = [float(item) for item in self.args.manual_intermediate_eval_values]
+                self.val_removal_ps = [float(item) for item in self.args.manual_intermediate_eval_values.split(',')]
             else:
                 self.val_removal_ps = [0.0, 0.5, 0.75, 0.9, 0.95, 1.0]
 
