@@ -7,8 +7,7 @@ import torch
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
-from utils import get_sep_position, extract_answer, extract_cot
-
+from utils import get_sep_position, extract_answer, extract_cot, COT_ANSWER_SPLIT_PATTERN
 
 def get_chunks_positions(sample, tokenizer, chunk_size):
     if len(sample.shape) == 1:
@@ -86,6 +85,7 @@ class CoTDatasetChunks(Dataset):
         self._init_pad_attributes(pad_cot, max_cot_length, cot_pad_id, pad_query, max_query_length, query_pad_id)
 
         lines = self._read_lines()
+        lines = self._format_answers(lines)
         self.dataset = self._process_examples(lines)
         
         self._pad_if_needed()
@@ -214,6 +214,15 @@ class CoTDatasetChunks(Dataset):
                     torch.full((n_query_pad_ids,), self.query_pad_id, dtype=item["input_ids"].dtype),
                     item["input_ids"][seps[0].item():]
                 ], dim=0)
+
+    def _format_answers(self, lines):
+        new_lines = []
+        for q, a in lines:
+            al, ar = a.split(COT_ANSWER_SPLIT_PATTERN.strip())
+            al, ar = al.strip(), ar.strip()
+            a = al + COT_ANSWER_SPLIT_PATTERN + ar
+            new_lines.append((q, a))
+        return new_lines
         
     def _process_examples(self, lines):
         src_lines, tgt_lines = list(zip(*lines))

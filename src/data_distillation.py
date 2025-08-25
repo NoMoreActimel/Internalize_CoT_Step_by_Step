@@ -21,6 +21,7 @@ class DistillationDataset(Dataset):
             tokenizer: Tokenizer to use
             max_length: Maximum sequence length (optional truncation)
         """
+        self.data_dir = data_dir
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.samples = []
