@@ -21,6 +21,7 @@ class DistillationDataset(Dataset):
             tokenizer: Tokenizer to use
             max_length: Maximum sequence length (optional truncation)
         """
+        self.data_dir = data_dir
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.samples = []
@@ -177,3 +178,4 @@ def load_distillation_data(train_dir_path, val_dir_path, tokenizer, batch_size,
         )
     
     return train_dataloader, val_dataloader, test_dataloader
+
