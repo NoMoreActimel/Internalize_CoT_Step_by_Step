@@ -411,7 +411,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         prefix = self.tokenizer(
             prefix_str,
-            add_special_tokens=True,
+            add_special_tokens=False,
             truncation=True,
             return_tensors="pt"
         )["input_ids"].to(self.device).squeeze(0)
