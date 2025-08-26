@@ -71,7 +71,7 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
         lines = self._format_answers(lines)
         self.dataset = self._process_examples(lines)
         
-        self._pad_cots() # <- we compute the same max-length for train / val / test
+        self._pad_if_needed() # <- we compute the same max-length for train / val / test
 
         # we need to split after preprocessing all samples each time for same max-length padding
         if manual_split: 
