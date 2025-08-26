@@ -85,7 +85,7 @@ class CoTDatasetChunks(Dataset):
         self._init_pad_attributes(pad_cot, max_cot_length, cot_pad_id, pad_query, max_query_length, query_pad_id)
 
         lines = self._read_lines()
-        lines = self._format_answers(lines)
+        # lines = self._format_answers(lines)
         self.dataset = self._process_examples(lines)
         
         self._pad_if_needed()

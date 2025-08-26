@@ -57,7 +57,8 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             "position_ids_shift": self.args.keep_position and self.joint_masked_distribution and self.left_to_right_removal,
             "insert_const_ids_in_cot": False,
             "random_insertion_prob": None,
-            "predict_cot_in_parallel": False
+            "predict_cot_in_parallel": False,
+            "force_cot_answer_split": False
         }
 
         self.generative_eval_hooks = []
@@ -224,9 +225,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             if val_removal_p == 1.0 and self.args.replace_mask:
                 self.val_generation_kwargs["use_inputs_cot"] = True
                 self.val_generation_kwargs["predict_cot_in_parallel"] = self.predict_cot_in_parallel
+                self.val_generation_kwargs["force_cot_answer_split"] = self.predict_cot_in_parallel
             else:
                 self.val_generation_kwargs["use_inputs_cot"] = False
                 self.val_generation_kwargs["predict_cot_in_parallel"] = False
+                self.val_generation_kwargs["force_cot_answer_split"] = False
 
             if not (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask:
                 random_insertion_prob, insert_const_ids_in_cot = None, None
