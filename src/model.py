@@ -351,14 +351,11 @@ class ImplicitModel(nn.Module):
         }
 
         all_logits = [] if return_logits else None
-
-        if insert_const_ids_in_cot:
-            beam_output = input_ids
-            if insert_position > 0:
-                beam_output = self.base_model.generate(**generate_kwargs)
-                if return_logits:
-                    all_logits.append(torch.stack(beam_output.scores, dim=1))
-                    beam_output = beam_output.sequences
+        if insert_const_ids_in_cot and insert_position > 0:
+            beam_output = self.base_model.generate(**generate_kwargs)
+            if return_logits:
+                all_logits.append(torch.stack(beam_output.scores, dim=1))
+                beam_output = beam_output.sequences
                 
             if self._check_double_eos(beam_output):
                 print("[PROFILE] Second EOS reached after insertion, skipping insertion and second generation")
