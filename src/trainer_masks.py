@@ -28,6 +28,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         # p% of tokens are masked contiguously starting from random pos
         self.random_contiguous_removal = args.random_contiguous_removal
 
+        # chunk-level random masking or removal
+        self.random_chunk_masking = args.random_chunk_masking
+        self.chunk_size = args.chunk_size
+        self.random_chunk_shift = args.random_chunk_shift
+
         # default is uniform sampling
         # works for left-to-right, random contiguous and completely random masks
         self.mask_beta_sampling = args.mask_beta_sampling
@@ -42,6 +47,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         if self.no_cot_stage or (not self.args.intermediate_eval):
             self.val_removal_ps = [0.0, 1.0]
         else:
+            assert not self.random_chunk_masking, "Intermediate eval does not work with random chunk masking yet!"
             if self.args.manual_intermediate_eval_values:
                 self.val_removal_ps = [float(item) for item in self.args.manual_intermediate_eval_values.split(',')]
             else:
@@ -648,8 +654,35 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         mask = torch.isin(all_indices, removed_indices)
         remaining_indices = all_indices[~mask]
         return remaining_indices, removed_indices, mask
+    
+    @staticmethod
+    def _get_random_chunks_cot_mask(cot_start, cot_end, removal_p, chunk_size, random_shift=True):        
+        chunk_shift = random.choice(torch.arange(0, chunk_size)) if random_shift else 0
+        chunk_shift = torch.tensor(chunk_shift, device=cot_start.device)
 
-    def _get_prefix_random_masking(self, cot_start, removed_indices, removal_p):
+        cot_length = (cot_end - cot_start).item()
+        n_chunks_total = (cot_length + chunk_shift + chunk_size - 1) // chunk_size
+        n_chunks_to_remove = int(np.round(removal_p * n_chunks_total))
+
+        if n_chunks_to_remove == 0:
+            mask = torch.zeros_like(all_indices, dtype=torch.bool)
+            return all_indices, torch.empty(0, dtype=torch.long, device=cot_start.device), mask
+
+        removed_chunks, _ = torch.sort(torch.randperm(
+            n_chunks_total,
+            device=cot_start.device,
+            dtype=torch.long
+        )[:n_chunks_to_remove])
+
+        all_indices = torch.arange(cot_start, cot_end, device=cot_start.device)
+        per_token_chunk_ids = (all_indices - cot_start + chunk_shift) // chunk_size
+
+        mask = torch.isin(per_token_chunk_ids, removed_chunks)
+        removed_indices = all_indices[mask]
+        remaining_indices = all_indices[~mask]
+        return remaining_indices, removed_indices, mask, chunk_shift
+
+    def _get_prefix_random_masking(self, cot_start, removed_indices, removal_p, chunk_shift=None):
         if self.no_cot_stage:
             prefix = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
             ignored_prefix_labels = torch.full_like(prefix, -100)
@@ -663,6 +696,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             else:
                 prefix_str = f" ## removed tokens: {(removed_indices - cot_start).tolist()} ## " # for sanity check
 
+        if chunk_shift is not None:
+            prefix_str = prefix_str[:-4] + f", shift {chunk_shift} ## "
+        
         prefix = self.tokenizer(
             prefix_str,
             add_special_tokens=True,
@@ -704,8 +740,18 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             cot_end = second_sep_positions[batch_idx]
             eos = eos_positions[batch_idx]
 
-            remaining_indices, removed_indices, mask = self._get_random_cot_mask(cot_start, cot_end, n_tokens_to_remove)
-            prefix, ignored_prefix_labels = self._get_prefix_random_masking(cot_start, removed_indices, removal_p)
+            if self.random_chunk_masking:
+                remaining_indices, removed_indices, mask, chunk_shift = self._get_random_chunks_cot_mask(
+                    cot_start, cot_end, removal_p, chunk_size=self.chunk_size, random_shift=self.random_chunk_shift
+                )
+            else:
+                remaining_indices, removed_indices, mask = self._get_random_cot_mask(
+                    cot_start, cot_end, n_tokens_to_remove
+                )
+                chunk_shift = None
+            prefix, ignored_prefix_labels = self._get_prefix_random_masking(
+                cot_start, removed_indices, removal_p, chunk_shift=chunk_shift
+            )
 
             if not self.args.replace_mask: # truncate selected tokens
                 if remaining_indices.shape[-1]:
