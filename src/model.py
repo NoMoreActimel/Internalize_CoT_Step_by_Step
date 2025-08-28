@@ -289,10 +289,10 @@ class ImplicitModel(nn.Module):
         if max_cot_tokens is not None:
             assert insert_const_ids_in_cot is False, \
                 "Max cot tokens runs through generate_with_insertion by itself, no support for additional insertion"
-            #ids_to_insert = torch.cat([
-            #    torch.tensor([self.tokenizer.eos_token_id], device=input_ids.device),
-            #    self.split_ids.to(device=input_ids.device)
-            #], dim=0)
+            # ids_to_insert = torch.cat([
+            #     torch.tensor([self.tokenizer.eos_token_id], device=input_ids.device),
+            #     self.split_ids.to(device=input_ids.device)
+            # ], dim=0)
             ids_to_insert = self.split_ids.to(device=input_ids.device)
             return self._generate_with_insertion(
                 input_ids,
@@ -397,7 +397,7 @@ class ImplicitModel(nn.Module):
         print(f"[PROFILE] total forward calls: {total_generated}  total forward time: {total_forward_time:.3f}s")
         #print(f"[PROFILE] num EOS in outputs: {(beam_output == self.tokenizer.eos_token_id).sum(dim=-1)}")
         print(f"[PROFILE] EOS in outputs: {(beam_output == self.tokenizer.eos_token_id)}")
-       
+        
         if return_logits:
             return beam_output, all_logits
         return beam_output

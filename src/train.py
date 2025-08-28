@@ -265,6 +265,13 @@ def main():
     parser.add_argument('--left_to_right_removal', action='store_true', default=False)
     # Select contiguous mask of random length starting from random position 
     parser.add_argument('--random_contiguous_removal', action='store_true', default=False)
+
+    parser.add_argument('--random_chunk_masking', action='store_true', default=False)
+    parser.add_argument('--chunk_size', type=int, default=8)
+    parser.add_argument('--random_chunk_shift', action='store_true', default=False, help="""
+        Whether to user random chunk shifts on training
+    """)
+
     parser.add_argument('--use_jump_tokens', action='store_true', default=False, help="""
         Instead of new prompt, use special <JUMP_i> tokens inside chain-of-thoughts.
     """)
