@@ -267,7 +267,7 @@ def main():
     parser.add_argument('--random_contiguous_removal', action='store_true', default=False)
 
     parser.add_argument('--random_chunk_masking', action='store_true', default=False)
-    parser.add_argument('--chunk_size', type=int, default=8)
+    parser.add_argument('--random_chunk_size', type=int, default=8)
     parser.add_argument('--random_chunk_shift', action='store_true', default=False, help="""
         Whether to user random chunk shifts on training
     """)
