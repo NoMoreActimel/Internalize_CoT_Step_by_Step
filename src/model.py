@@ -289,10 +289,11 @@ class ImplicitModel(nn.Module):
         if max_cot_tokens is not None:
             assert insert_const_ids_in_cot is False, \
                 "Max cot tokens runs through generate_with_insertion by itself, no support for additional insertion"
-            ids_to_insert = torch.cat([
-                torch.tensor([self.tokenizer.eos_token_id], device=input_ids.device),
-                self.split_ids.to(device=input_ids.device)
-            ], dim=0)
+            #ids_to_insert = torch.cat([
+            #    torch.tensor([self.tokenizer.eos_token_id], device=input_ids.device),
+            #    self.split_ids.to(device=input_ids.device)
+            #], dim=0)
+            ids_to_insert = self.split_ids.to(device=input_ids.device)
             return self._generate_with_insertion(
                 input_ids,
                 generation_config,
@@ -360,7 +361,9 @@ class ImplicitModel(nn.Module):
             if self._check_double_eos(beam_output):
                 print("[PROFILE] Second EOS reached after insertion, skipping insertion and second generation")
                 all_logits = torch.cat(all_logits, dim=1) if return_logits and all_logits else None
-                return beam_output, all_logits if return_logits else beam_output
+                if return_logits:
+                    return beam_output, all_logits
+                return beam_output
 
             generate_kwargs["input_ids"] = self.insert_const_ids(beam_output, ids_to_insert, logits_processor, all_logits) # appends to all_logits
             
@@ -375,6 +378,10 @@ class ImplicitModel(nn.Module):
             )
 
         generate_kwargs["max_new_tokens"] = second_generation
+
+        print(f"[DEBUG] inputs for final generation: {self.tokenizer.decode(generate_kwargs['input_ids'][0], skip_special_tokens=False)}")
+        print(f"[DEBUG] num eos in inputs: {(generate_kwargs['input_ids'] == self.tokenizer.eos_token_id).sum(-1)}")
+        print(f"[DEBUG] generate_kwargs: {generate_kwargs}")
         
         t0 = time.time()
         beam_output = self.base_model.generate(**generate_kwargs)
@@ -390,8 +397,10 @@ class ImplicitModel(nn.Module):
         print(f"[PROFILE] total forward calls: {total_generated}  total forward time: {total_forward_time:.3f}s")
         #print(f"[PROFILE] num EOS in outputs: {(beam_output == self.tokenizer.eos_token_id).sum(dim=-1)}")
         print(f"[PROFILE] EOS in outputs: {(beam_output == self.tokenizer.eos_token_id)}")
-        
-        return beam_output, all_logits if return_logits else beam_output
+       
+        if return_logits:
+            return beam_output, all_logits
+        return beam_output
     
     def _check_double_eos(self, input_ids):
         # If we have 2 or more EOS tokens, we're done (one after CoT, one after answer)
