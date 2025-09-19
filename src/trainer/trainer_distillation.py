@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import tqdm
 
-from src.trainers.trainer_simple import SimpleTrainer
+from src.trainer.trainer_simple import SimpleTrainer
 
 class DistillationTrainer(SimpleTrainer):
     """

@@ -3,7 +3,7 @@ import numpy as np
 from datasets import load_dataset
 from torch.utils.data import Dataset
 
-from src.datasets.data_chunked import CoTDatasetChunks
+from src.dataset.data_chunked import CoTDatasetChunks
 from src.utils import COT_ANSWER_SPLIT_PATTERN
 
 

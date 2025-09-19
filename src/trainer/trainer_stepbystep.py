@@ -3,7 +3,7 @@ import os
 import torch
 import tqdm
 
-from src.trainers.trainer_base import BaseTrainer
+from src.trainer.trainer_base import BaseTrainer
 from src.utils import get_sep_position, batch_ids
 
 

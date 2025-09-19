@@ -8,17 +8,17 @@ import logging
 import random
 import torch
 
-from src.datasets.data import load_data
-from src.datasets.data_chunked import add_new_tokens
-from src.datasets.data_distillation import load_distillation_data
+from src.dataset.data import load_data
+from src.dataset.data_chunked import add_new_tokens
+from src.dataset.data_distillation import load_distillation_data
 from src.model import ImplicitModel
 from src.model_jepa import JEPAImplicitModel
 from src.configuration_model import ImplicitModelConfig
-from src.trainers.trainer_stepbystep import StepByStepTrainer
-from src.trainers.trainer_chunks import ChunkRemovalTrainer
-from src.trainers.trainer_masks import AuxiliarMasksRemovalTrainer
-from src.trainers.trainer_simple import SimpleTrainer
-from src.trainers.trainer_distillation import DistillationTrainer
+from src.trainer.trainer_stepbystep import StepByStepTrainer
+from src.trainer.trainer_chunks import ChunkRemovalTrainer
+from src.trainer.trainer_masks import AuxiliarMasksRemovalTrainer
+from src.trainer.trainer_simple import SimpleTrainer
+from src.trainer.trainer_distillation import DistillationTrainer
 
 
 torch.backends.cuda.matmul.allow_tf32 = True
