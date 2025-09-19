@@ -474,6 +474,8 @@ if __name__ == "__main__":
                         help='Path to save/load candidate samples')
     parser.add_argument('--dataset_path', type=str, default='prosqa_dataset.json',
                         help='Path to save/load dataset')
+    parser.add_argument('--config_path', type=str, default='config.json',
+                        help='Path to save configuration file')
     parser.add_argument('--load_candidate_samples', action='store_true',
                         help='Load precomputed candidate samples')
     parser.add_argument('--load_dataset', action='store_true',
@@ -541,7 +543,31 @@ if __name__ == "__main__":
             print(f"\nPath from {sample['source']} to {sample['reachable_target']}: YES (length {sample['path_length']})")
             print(f"Path from {sample['source']} to {sample['unreachable_target']}: NO")
     
+    # Save configuration
+    config = {
+        'num_nodes': args.num_nodes,
+        'num_edges': args.num_edges,
+        'num_nodes_precompute': args.num_nodes_precompute,
+        'num_samples': args.num_samples,
+        'num_context_edges': args.num_context_edges,
+        'representation': args.representation,
+        'context_edge_proximity_weight': args.context_edge_proximity_weight,
+        'depth_range': args.depth_range,
+        'seed': args.seed,
+        'candidate_samples_path': args.candidate_samples_path,
+        'dataset_path': args.dataset_path,
+        'config_path': args.config_path,
+        'load_candidate_samples': args.load_candidate_samples,
+        'load_dataset': args.load_dataset,
+        'show_samples': args.show_samples,
+        'total_samples_generated': len(dataset)
+    }
+    
+    with open(args.config_path, 'w') as f:
+        json.dump(config, f, indent=2)
+    
     print(f"\nDataset generation complete!")
     print(f"Total samples: {len(dataset)}")
     if args.dataset_path:
         print(f"Dataset saved to: {args.dataset_path}")
+    print(f"Configuration saved to: {args.config_path}")
