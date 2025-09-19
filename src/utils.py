@@ -143,3 +143,4 @@ class SingleEOSLogitsProcessor(LogitsProcessor):
             scores[done, :] = float('-inf')
             scores[done, self.eos_token_id] = 0
         return scores
+

@@ -1,9 +1,9 @@
 from torch.utils.data import DataLoader
 
-from data_stepbystep import CoTDataset, CoTDataCollator
-from data_random_cot import CoTDatasetRandomCot, CoTDataCollatorRandomCot
-from data_chunked import CoTDatasetChunks, CoTDataCollatorChunks
-from data_huggingface import CoTChunksHFDataset
+from src.datasets.data_stepbystep import CoTDataset, CoTDataCollator
+from src.datasets.data_random_cot import CoTDatasetRandomCot, CoTDataCollatorRandomCot
+from src.datasets.data_chunked import CoTDatasetChunks, CoTDataCollatorChunks
+from src.datasets.data_huggingface import CoTChunksHFDataset
 
 def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     dataset_kwargs = {}
@@ -72,8 +72,9 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
 
 
 def load_data(args, tokenizer, new_token_ids=None):
+    train_shuffle = not getattr(args, "disable_train_shuffle", False)
     train_dataset, collate_fn = get_data_classes(args, tokenizer, new_token_ids, split=args.train_split)
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=train_shuffle)
 
     val_dataset, collate_fn = get_data_classes(args, tokenizer, new_token_ids, split=args.val_split)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=False)

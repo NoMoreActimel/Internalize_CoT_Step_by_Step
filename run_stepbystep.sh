@@ -7,6 +7,11 @@ SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
 DIR="$SCRATCH_DIR/train_models/${D}_by_${D}_mult/gpt2_pretrained/sbs_from_scratch_4_072225/"
 mkdir -p "$DIR"
 
+CUDA_VISIBLE_DEVICES=0 accelerate launch \
+  --num_processes 1 \
+  --mixed_precision bf16 \
+  --deepspeed_plugin ds_config.json \
+
 python src/train.py \
     --model gpt2 \
     --train_path "$SCRATCH_DIR/data/${D}_by_${D}_mult/train.txt" \

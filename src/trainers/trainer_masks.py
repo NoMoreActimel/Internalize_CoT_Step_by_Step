@@ -5,8 +5,8 @@ import random
 import torch
 import tqdm
 
-from trainer_base import BaseTrainer
-from utils import get_sep_position, batch_ids
+from src.trainers.trainer_base import BaseTrainer
+from src.utils import get_sep_position, batch_ids
 
 
 class AuxiliarMasksRemovalTrainer(BaseTrainer):
@@ -659,6 +659,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         mask = torch.isin(all_indices, removed_indices)
         remaining_indices = all_indices[~mask]
         return remaining_indices, removed_indices, mask
+    
+    @staticmethod
+    def _get_random_sentence_cot_mask(cot_start, cot_end, n_tokens_to_remove):
+        # TO-DO: is there a way to align token-level mask with end-of-sentence dots?
+        pass
     
     @staticmethod
     def _get_random_chunks_cot_mask(cot_start, cot_end, removal_p, chunk_size, random_shift=True):        

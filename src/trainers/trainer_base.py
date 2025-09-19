@@ -3,10 +3,10 @@ import tqdm
 import torch
 
 from accelerate import Accelerator
-from writer import WanDBWriter, MetricTracker
 from transformers.utils import is_peft_available
 
-from utils import get_sep_position, extract_answer
+from src.writer import WanDBWriter, MetricTracker
+from src.utils import get_sep_position, extract_answer
 
 if is_peft_available():
     from peft import get_peft_model_state_dict, set_peft_model_state_dict

@@ -4,50 +4,44 @@ import copy
 import json
 import random
 import torch
-import re
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
-from utils import get_sep_position, extract_answer, extract_cot
+from src.utils import get_sep_position, extract_answer, extract_cot, COT_ANSWER_SPLIT_PATTERN
+
+def get_chunks_positions(sample, tokenizer, chunk_size):
+    if len(sample.shape) == 1:
+        sample = sample.unsqueeze(0)
+
+    first_sep_positions = get_sep_position(sample, tokenizer.eos_token_id)
+    second_sep_positions = get_sep_position(sample, tokenizer.eos_token_id, skip=1)
+
+    left_border, right_border = first_sep_positions.item() + 1, second_sep_positions.item()
+
+    chunk_positions = list(range(left_border, right_border, chunk_size))
+    return chunk_positions
+
+def assign_new_tokens_to_chunks(chunk_positions, new_token_ids):
+    chunk_new_token_ids = list(random.choices(new_token_ids, k=len(chunk_positions)))
+    return chunk_new_token_ids
+
+def add_new_tokens(model, tokenizer, num_new_tokens):
+    orig_vocab_length = len(tokenizer.get_vocab())
+
+    new_tokens = [f"<ULTRA_MEGA_NEW_TOKEN_{i}" for i in range(num_new_tokens)]
+    num_added_tokens = tokenizer.add_tokens(new_tokens)
+
+    vocab_length = len(tokenizer.get_vocab())
+
+    assert num_added_tokens == num_new_tokens, "New tokens addition failed, change the new token template?"
+    assert orig_vocab_length + num_new_tokens == vocab_length, "New tokens addition failed, change the new token template?"
+
+    model.base_model.resize_token_embeddings(len(tokenizer))
+    new_token_ids = [id for id in range(orig_vocab_length, vocab_length)]
+    return model, tokenizer, new_token_ids
 
 
-def extract_digits_from_question(question):
-    """Extract all digits from a multiplication question."""
-    digits = re.findall(r'\d', question)
-    return digits
-
-
-def generate_random_cot_random_digits(n_tokens):
-    """Strategy 1: Completely random digits separated with space."""
-    random_digits = [str(random.randint(0, 9)) for _ in range(n_tokens)]
-    return ' '.join(random_digits)
-
-
-def generate_random_cot_random_digits_from_question(question, n_tokens):
-    """Strategy 2: Randomly sampled tokens from question, new permutation each sample."""
-    digits = extract_digits_from_question(question)
-    if not digits:
-        # Fallback to strategy 1 if no digits found
-        return generate_random_cot_random_digits(n_tokens)
-    
-    # Sample with replacement to get n_tokens
-    sampled_digits = random.choices(digits, k=n_tokens)
-    return ' '.join(sampled_digits)
-
-
-def generate_random_cot_fixed_permutation_random_digits_from_question(question, n_tokens, fixed_permutation):
-    """
-        Fixed permutation of tokens from question for all samples.
-        All samples MUST have the same number of digits in question.
-    """
-    digits = sorted(extract_digits_from_question(question))
-    if not digits:
-        return generate_random_cot_random_digits(n_tokens)
-    
-    return [digits[digit_idx] for digit_idx in fixed_permutation]
-
-
-class CoTDatasetRandomCot(Dataset):
+class CoTDatasetChunks(Dataset):
     def __init__(
             self,
             tokenizer,
@@ -55,8 +49,9 @@ class CoTDatasetRandomCot(Dataset):
             json_dataset,
             max_length=-1,
             max_size=-1,
-            random_cot_strategy="random_digits",
-            random_cot_length=50,
+            chunk_size=8,
+            num_new_tokens=1000,
+            new_token_ids=None,
             pad_cot=False,
             max_cot_length=-1,
             cot_pad_id=None,
@@ -66,21 +61,15 @@ class CoTDatasetRandomCot(Dataset):
             **kwargs
     ):
         """
-        This dataset replaces CoTs with random CoTs using one of three strategies:
-        1. "random_digits":
-            Completely random digits separated with space
-        2. "random_digits_from_question":
-            Randomly sampled tokens from question (digits), new permutation each sample
-        3. "fixed_permutation_random_digits_from_question":
-            Same as 2, but fixed permutation for all samples.
-            All samples MUST have the same number of digits in question.
+            This dataset precomputes chunk positions for each of the samples in the file_path,
+            assigning randomly sampled new_token_ids for each chunk.
         """
         super().__init__()
 
         assert os.path.isfile(path), f"Input file path {path} not found"
-        print(f'Creating features from dataset file at {path}')
+        print (f'Creating features from dataset file at {path}')
 
-        self.tokenizer = tokenizer
+        self.tokenizer, self.new_token_ids = tokenizer, new_token_ids
         
         self.eos_tok = self.tokenizer.eos_token
         self.separator = tokenizer.eos_token_id
@@ -90,13 +79,13 @@ class CoTDatasetRandomCot(Dataset):
         self.file_path = path
         self.max_length = max_length
         self.max_size = max_size
-        self.random_cot_strategy = random_cot_strategy
-        self.random_cot_length = random_cot_length
-        self.fixed_permutation = None
+        self.chunk_size = chunk_size
+        self.num_new_tokens = num_new_tokens
 
         self._init_pad_attributes(pad_cot, max_cot_length, cot_pad_id, pad_query, max_query_length, query_pad_id)
 
         lines = self._read_lines()
+        # lines = self._format_answers(lines)
         self.dataset = self._process_examples(lines)
         
         self._pad_if_needed()
@@ -226,21 +215,14 @@ class CoTDatasetRandomCot(Dataset):
                     item["input_ids"][seps[0].item():]
                 ], dim=0)
 
-    def _generate_random_cot(self, question):
-        """Generate random CoT based on the selected strategy."""
-        if self.random_cot_strategy == "random_digits":
-            return generate_random_cot_random_digits(self.random_cot_length)
-        elif self.random_cot_strategy == "random_digits_from_question":
-            return generate_random_cot_random_digits_from_question(question, self.random_cot_length)
-        elif self.random_cot_strategy == "fixed_permutation_random_digits_from_question":
-            if self.fixed_permutation is None:
-                digits = sorted(extract_digits_from_question(question))
-                self.fixed_permutation = random.choices(list(range(len(digits))), k=self.random_cot_length)
-            return generate_random_cot_fixed_permutation_random_digits_from_question(
-                question, self.random_cot_length, self.fixed_permutation
-            )
-        else:
-            raise ValueError(f"Invalid random_cot_strategy: {self.random_cot_strategy}.")
+    def _format_answers(self, lines):
+        new_lines = []
+        for q, a in lines:
+            al, ar = a.split(COT_ANSWER_SPLIT_PATTERN.strip())
+            al, ar = al.strip(), ar.strip()
+            a = al + COT_ANSWER_SPLIT_PATTERN + ar
+            new_lines.append((q, a))
+        return new_lines
         
     def _process_examples(self, lines):
         src_lines, tgt_lines = list(zip(*lines))
@@ -250,9 +232,9 @@ class CoTDatasetRandomCot(Dataset):
         examples_all = []
         for src, tgt in zip(src_lines, tgt_lines):
             ans = extract_answer(tgt)
-            random_cot = self._generate_random_cot(src)
+            cot = extract_cot(tgt)
 
-            sent = f' {src} {self.eos_tok} {random_cot} {self.eos_tok} {ans} {self.eos_tok} '
+            sent = f' {src} {self.eos_tok} {cot} {self.eos_tok} {ans} {self.eos_tok} '
 
             sent_encoded = self.tokenizer(
                 [sent],
@@ -263,13 +245,19 @@ class CoTDatasetRandomCot(Dataset):
             )
 
             input_ids = sent_encoded["input_ids"][0]
+            if self.chunk_size:
+                chunk_positions = get_chunks_positions(input_ids, self.tokenizer, self.chunk_size)
+            if self.num_new_tokens:
+                chunk_new_token_ids = assign_new_tokens_to_chunks(chunk_positions, self.new_token_ids)
 
             examples_all.append({
                 "input_ids": input_ids,
+                "chunk_positions": chunk_positions if self.chunk_size else None,
+                "chunk_input_ids": chunk_new_token_ids if self.num_new_tokens else None
             })
 
             if len(examples_all) % 10000 == 0:
-                print(len(examples_all))
+                print (len(examples_all))
         
         return examples_all
             
@@ -288,15 +276,28 @@ class CoTDatasetRandomCot(Dataset):
         return {
             "input_ids": torch.tensor(input_ids.clone().detach(), dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
+            "chunk_input_ids": torch.tensor(item["chunk_input_ids"], dtype=torch.long) if self.num_new_tokens else None,
+            "chunk_positions": item["chunk_positions"] if self.chunk_size else None
         }
 
-class CoTDataCollatorRandomCot:
+@dataclass
+class CoTDataCollatorChunks:
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
 
     def __call__(self, items):
         input_ids = [item["input_ids"] for item in items]
         labels = [item["labels"] for item in items]
+        chunk_input_ids = [item["chunk_input_ids"] for item in items]
+        chunk_positions = [item["chunk_positions"] for item in items]
+
         input_ids = pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.eos_token_id)
         labels = pad_sequence(labels, batch_first=True, padding_value=-100)
-        return {'input_ids': input_ids, 'labels': labels,}
+        if chunk_input_ids[0] is not None:
+            chunk_input_ids = pad_sequence(chunk_input_ids, batch_first=True, padding_value=-100)
+        return {
+            'input_ids': input_ids,
+            'labels': labels,
+            'chunk_input_ids': chunk_input_ids,
+            'chunk_positions': chunk_positions
+        }

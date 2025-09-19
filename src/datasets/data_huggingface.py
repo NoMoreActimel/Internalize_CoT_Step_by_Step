@@ -3,9 +3,8 @@ import numpy as np
 from datasets import load_dataset
 from torch.utils.data import Dataset
 
-from data_chunked import CoTDatasetChunks
-
-from utils import COT_ANSWER_SPLIT_PATTERN
+from src.datasets.data_chunked import CoTDatasetChunks
+from src.utils import COT_ANSWER_SPLIT_PATTERN
 
 
 class CoTChunksHFDataset(CoTDatasetChunks, Dataset):

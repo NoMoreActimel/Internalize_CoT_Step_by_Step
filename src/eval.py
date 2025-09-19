@@ -9,13 +9,13 @@ import random
 import torch
 
 
-from model import ImplicitModel
-from configuration_model import ImplicitModelConfig
-from data_chunked import add_new_tokens
-from data import load_data
-from trainer_stepbystep import StepByStepTrainer
-from trainer_chunks import ChunkRemovalTrainer
-from trainer_masks import AuxiliarMasksRemovalTrainer
+from src.model import ImplicitModel
+from src.configuration_model import ImplicitModelConfig
+from src.datasets.data_chunked import add_new_tokens
+from src.datasets.data import load_data
+from src.trainers.trainer_stepbystep import StepByStepTrainer
+from src.trainers.trainer_chunks import ChunkRemovalTrainer
+from src.trainers.trainer_masks import AuxiliarMasksRemovalTrainer
 
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -41,19 +41,19 @@ def expand_gpt2_positions(model, args):
             persistent=False,
         )
 
-def create_model(args, ptdtype, device):
+def create_model(args, device):
     if args.from_pretrained is None:
         config = ImplicitModelConfig(base_model=args.model)
-        model = ImplicitModel(config, reinitialize_weights=args.train_from_scratch).to(device).to(ptdtype)
+        model = ImplicitModel(config, reinitialize_weights=args.train_from_scratch).to(device)
     else:
         print (f'Loading from {args.from_pretrained}')
         config = None
-        model = ImplicitModel.from_pretrained(args.from_pretrained).to(device).to(ptdtype)
+        model = ImplicitModel.from_pretrained(args.from_pretrained).to(device)
 
     if 'gpt2' in args.model:
         expand_gpt2_positions(model, args)
     
-    model = model.to(device).to(ptdtype)
+    model = model.to(device)
     tokenizer = model.tokenizer
 
     if args.reinitialize_weights:
@@ -158,14 +158,12 @@ def main():
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    dtype = 'bfloat16' if args.bf16 else 'float32'
-    ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(device)
     
-    print(ptdtype, dtype, device)
 
     # Create Model
-    config, model, tokenizer = create_model(args, ptdtype, device)
+    config, model, tokenizer = create_model(args, device)
     if args.removal_type == "random-chunks":
         model, tokenizer, new_token_ids = add_new_tokens(model, tokenizer, args.num_new_tokens + 1)
         start_id, new_token_ids = new_token_ids[0], new_token_ids[1:]
