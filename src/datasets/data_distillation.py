@@ -67,7 +67,7 @@ class DistillationDataset(Dataset):
         print(f"Loaded {len(self.samples)} samples for distillation from {chunk_file}!")
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.samples) * len(self.chunk_files)
     
     def __getitem__(self, idx):
         print("[Distillation dataset] index received:", idx)
