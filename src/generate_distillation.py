@@ -11,8 +11,8 @@ import numpy as np
 import torch
 import pickle
 
-from data import load_data
-from data_chunked import add_new_tokens
+from data.data import load_data
+from data.data_chunked import add_new_tokens
 from model import ImplicitModel
 from model_jepa import JEPAImplicitModel
 from configuration_model import ImplicitModelConfig
