@@ -12,7 +12,7 @@ OUTDIR="${SCRATCH}/data/openmath"
 
 mkdir -p "$OUTDIR"
 
-python prepare_openmath.py \
+python preprocess_huggingface.py \
   --path                    open-r1/OpenR1-Math-220k \
   --name                    default \
   --split                   train \

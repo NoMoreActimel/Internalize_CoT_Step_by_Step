@@ -2,8 +2,7 @@ import torch
 import torch.nn.functional as F
 import tqdm
 
-from trainer_simple import SimpleTrainer
-
+from trainers.trainer_simple import SimpleTrainer
 
 class DistillationTrainer(SimpleTrainer):
     """
@@ -30,6 +29,12 @@ class DistillationTrainer(SimpleTrainer):
         print(f"  Temperature: {self.temperature}")
         print(f"  Alpha (KL weight): {self.alpha}")
         print(f"  Beta (CE weight): {self.beta}")
+
+        additional_metrics = ["total_loss", "ce_loss", "distillation_loss"]
+        if self.jepa_training:
+            additional_metrics.append("CE_loss")
+            additional_metrics.append("JEPA_loss")
+        self.setup_metrics(additional_metrics=additional_metrics)
     
     def _train_process(self):
         if self.args.from_pretrained_checkpoint:
@@ -160,8 +165,8 @@ class DistillationTrainer(SimpleTrainer):
         Returns:
             KL divergence loss between teacher and student distributions
         """
-        # Only compute loss where labels are not -100 (i.e., not padding)
-        mask = (labels != -100)
+        # Only compute loss where teacher_logits is not all padding (e.g., -100) along vocab dimension
+        mask = (labels != -100) & ~(teacher_logits != -100.0).all(dim=-1)
         
         if not mask.any():
             return torch.tensor(0.0, device=student_logits.device, requires_grad=True)

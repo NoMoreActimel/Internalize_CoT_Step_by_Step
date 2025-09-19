@@ -1,7 +1,7 @@
 import torch
 import tqdm
 
-from trainer_base import BaseTrainer
+from trainers.trainer_base import BaseTrainer
 
 
 class SimpleTrainer(BaseTrainer):

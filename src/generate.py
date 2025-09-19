@@ -21,7 +21,7 @@ logging.disable(logging.WARNING)
 
 
 @torch.no_grad()
-def evaluate(dataloader, tokenizer, device, ctx, model, max_new_tokens):
+def evaluate(dataloader, tokenizer, device, model, max_new_tokens):
     model.eval()
     total_instances = 0
     total_correct = 0
@@ -72,22 +72,15 @@ def main():
     parser.add_argument('--truncation', type=int, default=-1)
     parser.add_argument('--bf16', action='store_true', default=False)
     args = parser.parse_args()
-
     print (args)
 
-    if args.bf16:
-        dtype = 'bfloat16'
-    else:
-        dtype = 'float32'
-    ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    ctx = torch.amp.autocast(device_type='cuda', dtype=ptdtype)
-    print (ptdtype, dtype, device)
+    print(device)
 
     # Load model
     print (f'Loading from {args.from_pretrained}')
-    model = ImplicitModel.from_pretrained(args.from_pretrained).to(device).to(ptdtype)
-    model = model.to(device).to(ptdtype)
+    model = ImplicitModel.from_pretrained(args.from_pretrained).to(device)
+    model = model.to(device)
     model.eval()
     tokenizer = model.tokenizer
 
@@ -96,7 +89,7 @@ def main():
     test_dataset = CoTDataset(tokenizer, args.test_path, args.truncation)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=False)
 
-    accuracy, throughput = evaluate(test_dataloader, tokenizer, device, ctx, model, args.max_new_tokens)
+    accuracy, throughput = evaluate(test_dataloader, tokenizer, device, model, args.max_new_tokens)
     print (f"Test Accuracy: {accuracy}. Throughput: {throughput}")
 
 if __name__ == "__main__":

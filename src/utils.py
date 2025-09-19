@@ -112,3 +112,34 @@ class DoubleEOSLogitsProcessor(LogitsProcessor):
             scores[done, self.eos_token_id] = 0
         return scores
 
+
+class SingleEOSStoppingCriteria(StoppingCriteria):
+    def __init__(self, eos_token_id):
+        super().__init__()
+        self.eos_token_id = eos_token_id
+        self.init = False
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor):
+        eos_count = (input_ids == self.eos_token_id).sum(dim=-1)
+        if not self.init:
+            self.init = True
+            self.eos_count_init = eos_count
+        done = (eos_count - self.eos_count_init) >= 1
+        return done.all()
+
+class SingleEOSLogitsProcessor(LogitsProcessor):
+    def __init__(self, eos_token_id):
+        super().__init__()
+        self.eos_token_id = eos_token_id
+        self.init = False
+    
+    def __call__(self, input_ids, scores):
+        eos_count = (input_ids == self.eos_token_id).sum(dim=-1)
+        if not self.init:
+            self.init = True
+            self.eos_count_init = eos_count
+        done = (eos_count - self.eos_count_init) >= 1
+        if done.any():
+            scores[done, :] = float('-inf')
+            scores[done, self.eos_token_id] = 0
+        return scores

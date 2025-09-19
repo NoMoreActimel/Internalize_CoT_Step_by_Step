@@ -5,8 +5,8 @@ import random
 import torch
 import tqdm
 
-from trainer_base import BaseTrainer
-from utils import get_sep_position, batch_ids
+from trainers.trainer_base import BaseTrainer
+from ..utils import get_sep_position, batch_ids
 
 
 class AuxiliarMasksRemovalTrainer(BaseTrainer):
@@ -656,17 +656,24 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         return remaining_indices, removed_indices, mask
     
     @staticmethod
+    def _get_random_sentence_cot_mask(cot_start, cot_end, n_tokens_to_remove):
+        # TO-DO: is there a way to align token-level mask with end-of-sentence dots?
+        pass
+    
+    @staticmethod
     def _get_random_chunks_cot_mask(cot_start, cot_end, removal_p, chunk_size, random_shift=True):        
         chunk_shift = random.choice(torch.arange(0, chunk_size)) if random_shift else 0
         chunk_shift = torch.tensor(chunk_shift, device=cot_start.device)
 
         cot_length = (cot_end - cot_start).item()
-        n_chunks_total = (cot_length + chunk_shift + chunk_size - 1) // chunk_size
+        n_chunks_total = (cot_length + chunk_shift.item() + chunk_size - 1) // chunk_size
         n_chunks_to_remove = int(np.round(removal_p * n_chunks_total))
+
+        all_indices = torch.arange(cot_start, cot_end, device=cot_start.device)
 
         if n_chunks_to_remove == 0:
             mask = torch.zeros_like(all_indices, dtype=torch.bool)
-            return all_indices, torch.empty(0, dtype=torch.long, device=cot_start.device), mask
+            return all_indices, torch.empty(0, dtype=torch.long, device=cot_start.device), mask, chunk_shift
 
         removed_chunks, _ = torch.sort(torch.randperm(
             n_chunks_total,
@@ -674,7 +681,6 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             dtype=torch.long
         )[:n_chunks_to_remove])
 
-        all_indices = torch.arange(cot_start, cot_end, device=cot_start.device)
         per_token_chunk_ids = (all_indices - cot_start + chunk_shift) // chunk_size
 
         mask = torch.isin(per_token_chunk_ids, removed_chunks)
