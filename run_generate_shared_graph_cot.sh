@@ -20,7 +20,7 @@ DEPTH_MAX=6
 SEED=42
 SHOW_SAMPLES=5
 
-python3 src/subprosqa/generate_shared_graph_cot.py \
+python src/subprosqa/generate_shared_graph_cot.py \
     --num_nodes "$NUM_NODES" \
     --num_edges "$NUM_EDGES" \
     --num_samples "$NUM_SAMPLES" \

@@ -1,9 +1,9 @@
 from torch.utils.data import DataLoader
 
-from src.datasets.data_stepbystep import CoTDataset, CoTDataCollator
-from src.datasets.data_random_cot import CoTDatasetRandomCot, CoTDataCollatorRandomCot
-from src.datasets.data_chunked import CoTDatasetChunks, CoTDataCollatorChunks
-from src.datasets.data_huggingface import CoTChunksHFDataset
+from src.dataset.data_stepbystep import CoTDataset, CoTDataCollator
+from src.dataset.data_random_cot import CoTDatasetRandomCot, CoTDataCollatorRandomCot
+from src.dataset.data_chunked import CoTDatasetChunks, CoTDataCollatorChunks
+from src.dataset.data_huggingface import CoTChunksHFDataset
 
 def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     dataset_kwargs = {}
