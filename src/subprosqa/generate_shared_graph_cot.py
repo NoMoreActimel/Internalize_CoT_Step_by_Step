@@ -1,8 +1,11 @@
-import random
+import argparse
+import json
 import networkx as nx
+import os
+import random
+
 from collections import defaultdict
 from typing import List, Tuple, Dict, Optional, Set
-import json
 
 class SubProsQADataset:
     """
@@ -439,42 +442,106 @@ class SubProsQADataset:
         for stat_name, stat_value in stats.items():
             print(f"  {stat_name}: {stat_value}")
 
-# Example usage
+
 if __name__ == "__main__":
-    # Create generator with larger graph
+    
+    parser = argparse.ArgumentParser(
+        description="Generate SubProsQA dataset with shared graph CoT",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    
+    parser.add_argument('--num_nodes', type=int, default=1000,
+                        help='Number of nodes in the graph')
+    parser.add_argument('--num_edges', type=int, default=3000,
+                        help='Number of edges in the graph')
+    parser.add_argument('--num_nodes_precompute', type=int, default=1000,
+                        help='Number of nodes to precompute (default: same as num_nodes)')
+    
+    parser.add_argument('--num_samples', type=int, default=1000,
+                        help='Number of samples to generate')
+    parser.add_argument('--num_context_edges', type=int, default=25,
+                        help='Number of context edges per sample')
+    parser.add_argument('--depth_range', type=int, nargs=2, default=[3, 10],
+                        help='Min and max depth for path generation (e.g., --depth_range 3 10)')
+    
+    parser.add_argument('--representation', type=str, default='structured',
+                        choices=['structured', 'natural', 'hybrid'],
+                        help='Type of representation to use')
+    parser.add_argument('--context_edge_proximity_weight', type=float, default=5.0,
+                        help='Weight for proximity-based edge selection')
+    
+    parser.add_argument('--candidate_samples_path', type=str, default='candidate_samples.json',
+                        help='Path to save/load candidate samples')
+    parser.add_argument('--dataset_path', type=str, default='prosqa_dataset.json',
+                        help='Path to save/load dataset')
+    parser.add_argument('--load_candidate_samples', action='store_true',
+                        help='Load precomputed candidate samples')
+    parser.add_argument('--load_dataset', action='store_true',
+                        help='Load precomputed dataset')
+    
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Random seed for reproducibility')
+    parser.add_argument('--show_samples', type=int, default=5,
+                        help='Number of sample outputs to display')
+    parser.add_argument('--quiet', action='store_true',
+                        help='Suppress sample output display')
+    
+    args = parser.parse_args()
+    
+    if args.candidate_samples_path:
+        os.makedirs(os.path.dirname(args.candidate_samples_path) or '.', exist_ok=True)
+    if args.dataset_path:
+        os.makedirs(os.path.dirname(args.dataset_path) or '.', exist_ok=True)
+    
+    print("="*60)
+    print("SubProsQA Dataset Generation")
+    print("="*60)
+    print(f"Graph: {args.num_nodes} nodes, {args.num_edges} edges")
+    print(f"Samples: {args.num_samples}")
+    print(f"Context edges per sample: {args.num_context_edges}")
+    print(f"Representation: {args.representation}")
+    print(f"Depth range: {args.depth_range[0]}-{args.depth_range[1]}")
+    print(f"Seed: {args.seed}")
+    print("="*60)
+    
     prosqa_generator = SubProsQADataset(
-        num_nodes=1000,
-        num_edges=3000,
-        num_nodes_precompute=1000,
-        num_samples=1000,
-        num_context_edges=25,
-        representation='structured',  # or 'natural' or 'hybrid'
-        context_edge_proximity_weight=5.0,
-        candidate_samples_path='candidate_samples.json',
-        load_candidate_samples=False,
-        dataset_path='prosqa_dataset.json',
-        load_dataset=False,
-        depth_range=(3, 10),
-        seed=42
+        num_nodes=args.num_nodes,
+        num_edges=args.num_edges,
+        num_nodes_precompute=args.num_nodes_precompute,
+        num_samples=args.num_samples,
+        num_context_edges=args.num_context_edges,
+        representation=args.representation,
+        context_edge_proximity_weight=args.context_edge_proximity_weight,
+        candidate_samples_path=args.candidate_samples_path,
+        load_candidate_samples=args.load_candidate_samples,
+        dataset_path=args.dataset_path,
+        load_dataset=args.load_dataset,
+        depth_range=tuple(args.depth_range),
+        seed=args.seed
     )
 
-
     dataset = prosqa_generator.dataset
-    random_indices = random.sample(range(len(dataset)), 5)
-
-    for random_index in random_indices:
-      print("\n" + "="*60)
-      print("SAMPLE OUTPUT")
-      print("="*60)
-      
-      sample = dataset[random_index]
-      print(f"\nQuestion: {sample['question']}")
-      print("Context:")
-      for line in [sample['context'][i:i+200] for i in range(0, len(sample['context']), 200)]:
-          print(line)
-      
-      # print(f"Context: {sample['context']}...")
-      print(f"Reasoning path: {' -> '.join(sample['path'])}")
-      print(f"Answer: {sample['answer']}")
-      print(f"\nPath from {sample['source']} to {sample['reachable_target']}: YES (length {sample['path_length']})")
-      print(f"Path from {sample['source']} to {sample['unreachable_target']}: NO")
+    
+    if not args.quiet:
+        random_indices = random.sample(range(len(dataset)), min(args.show_samples, len(dataset)))
+        
+        for i, random_index in enumerate(random_indices):
+            print(f"\n{'='*60}")
+            print(f"SAMPLE OUTPUT {i+1}/{len(random_indices)}")
+            print("="*60)
+            
+            sample = dataset[random_index]
+            print(f"\nQuestion: {sample['question']}")
+            print("Context:")
+            for line in [sample['context'][i:i+200] for i in range(0, len(sample['context']), 200)]:
+                print(line)
+            
+            print(f"Reasoning path: {' -> '.join(sample['path'])}")
+            print(f"Answer: {sample['answer']}")
+            print(f"\nPath from {sample['source']} to {sample['reachable_target']}: YES (length {sample['path_length']})")
+            print(f"Path from {sample['source']} to {sample['unreachable_target']}: NO")
+    
+    print(f"\nDataset generation complete!")
+    print(f"Total samples: {len(dataset)}")
+    if args.dataset_path:
+        print(f"Dataset saved to: {args.dataset_path}")
