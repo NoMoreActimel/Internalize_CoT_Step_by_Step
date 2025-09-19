@@ -11,13 +11,13 @@ import numpy as np
 import torch
 import pickle
 
-from data.data import load_data
-from data.data_chunked import add_new_tokens
-from model import ImplicitModel
-from model_jepa import JEPAImplicitModel
-from configuration_model import ImplicitModelConfig
-from utils import get_sep_position, extract_answer, extract_cot
-from train import create_model, expand_gpt2_positions
+from src.datasets.data import load_data
+from src.datasets.data_chunked import add_new_tokens
+from src.model import ImplicitModel
+from src.model_jepa import JEPAImplicitModel
+from src.configuration_model import ImplicitModelConfig
+from src.utils import get_sep_position, extract_answer, extract_cot
+from src.train import create_model, expand_gpt2_positions
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True

@@ -1,8 +1,7 @@
 import torch
 import tqdm
 
-from trainers.trainer_base import BaseTrainer
-
+from src.trainers.trainer_base import BaseTrainer
 
 class SimpleTrainer(BaseTrainer):
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args):

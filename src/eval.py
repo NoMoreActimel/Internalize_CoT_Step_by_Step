@@ -9,13 +9,13 @@ import random
 import torch
 
 
-from model import ImplicitModel
-from configuration_model import ImplicitModelConfig
-from data.data_chunked import add_new_tokens
-from data.data import load_data
-from trainers.trainer_stepbystep import StepByStepTrainer
-from trainers.trainer_chunks import ChunkRemovalTrainer
-from trainers.trainer_masks import AuxiliarMasksRemovalTrainer
+from src.model import ImplicitModel
+from src.configuration_model import ImplicitModelConfig
+from src.datasets.data_chunked import add_new_tokens
+from src.datasets.data import load_data
+from src.trainers.trainer_stepbystep import StepByStepTrainer
+from src.trainers.trainer_chunks import ChunkRemovalTrainer
+from src.trainers.trainer_masks import AuxiliarMasksRemovalTrainer
 
 
 torch.backends.cuda.matmul.allow_tf32 = True

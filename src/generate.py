@@ -10,10 +10,10 @@ import tqdm
 import inspect
 import logging
 import random
-from model import ImplicitModel
 
-from data.data_stepbystep import CoTDataset, CoTDataCollator
-from utils import get_sep_position, extract_answer
+from src.model import ImplicitModel
+from src.datasets.data_stepbystep import CoTDataset, CoTDataCollator
+from src.utils import get_sep_position, extract_answer
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True

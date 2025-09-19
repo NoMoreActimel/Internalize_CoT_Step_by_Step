@@ -5,8 +5,8 @@ import random
 import torch
 import tqdm
 
-from trainers.trainer_base import BaseTrainer
-from utils import get_sep_position, batch_ids
+from src.trainers.trainer_base import BaseTrainer
+from src.utils import get_sep_position, batch_ids
 
 class AuxiliarMasksRemovalTrainer(BaseTrainer):
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args):

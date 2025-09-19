@@ -3,8 +3,8 @@ import os
 import torch
 import tqdm
 
-from trainers.trainer_base import BaseTrainer
-from ..utils import get_sep_position, batch_ids
+from src.trainers.trainer_base import BaseTrainer
+from src.utils import get_sep_position, batch_ids
 
 
 def compute_lambda_distribution(removal_smoothing_lambda, truncate_length=100):

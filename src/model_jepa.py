@@ -1,11 +1,10 @@
 import os
 import torch
 import torch.nn as nn
-
 from torch.nn import CrossEntropyLoss, MSELoss
-from model import ImplicitModel
 
-from utils import get_sep_position
+from src.model import ImplicitModel
+from src.utils import get_sep_position
 
 class JEPAImplicitModel(ImplicitModel):
     def __init__(
