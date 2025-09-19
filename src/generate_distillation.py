@@ -591,9 +591,9 @@ def main():
         split_output_dir = f"{args.output_dir}/{split_name}"
         os.makedirs(split_output_dir, exist_ok=True)
         generate_distillation_data(dataloader, model, tokenizer, device, split_output_dir, split_name, args)
-    
     print(f"\nAll distillation data saved to {args.output_dir}")
 
 
 if __name__ == "__main__":
     main()
+

@@ -30,7 +30,6 @@ def preprocess_prontoqa(dataset_path, output_dir, num_train=9000, num_val=200):
         question = sample['question']
         cot = ' '.join(steps) + f" #### {sample['answer']}"
         data.append(f"{question}||{cot}\n")
-    
     os.makedirs(output_dir, exist_ok=True)
     
     bounds = [(0, num_train), (num_train, num_train+num_val), (num_train+num_val, len(data))]
@@ -45,25 +44,31 @@ def preprocess_prontoqa(dataset_path, output_dir, num_train=9000, num_val=200):
                 
         print(f"Wrote preprocessed dataset to {out_path}!")
 
-def generate_prontoqa(repo_path, output_path, num_trials=10000):
+def generate_prontoqa(repo_path, output_path, num_trials=10000, min_hops=5, max_hops=5):
     cmd = [
         sys.executable,
         os.path.join(repo_path, "run_experiment.py"),
-        "--model-name", "dummy",
+        "--model-name", "json",
         "--model-size", "0",
         "--ordering", "random",
         "--num-trials", str(num_trials),
         "--few-shot-examples", "0",
         "--ontology", "fictional",
-        "--min-hops", "5",
-        "--max-hops", "5",
+        "--min-hops", str(min_hops),
+        "--max-hops", str(max_hops),
         "--hops-skip", "1",
     ]
-    filename = "5hop_0shot_random.json"
     subprocess.run(cmd, cwd=repo_path, check=True)
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    shutil.move(f"{repo_path}/{filename}", output_path)
+    if min_hops < max_hops:
+        output_path = output_path.rsplit(".", 1)[0]
+    for hop in range(min_hops, max_hops + 1):
+        filename = f"{hop}hop_0shot_random.json"
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        out = output_path
+        if out[-5:] != ".json":
+            out = out + f"_{hop}hop.json"
+        shutil.move(f"{repo_path}/{filename}", out)
+        print(f"Filename {filename} is done")
     
     print(f"Generated ProntoQA dataset into {output_path}!")
 
@@ -76,6 +81,8 @@ if __name__ == "__main__":
     parser.add_argument('--num_trials', type=int, default=10000)
     parser.add_argument('--num_train', type=int, default=9000)
     parser.add_argument('--num_val', type=int, default=200)
+    parser.add_argument('--min_hops', type=int, default=5)
+    parser.add_argument('--max_hops', type=int, default=5)
     parser.add_argument('--output_dir', type=str, default=None, required=True, help="Output directory for processed .txt files")
     args = parser.parse_args()
     
@@ -83,6 +90,7 @@ if __name__ == "__main__":
         if os.path.exists(args.orig_dataset_path):
             print(f"File {args.orig_dataset_path} already exists; skipping ProntoQA generation.")
         else:
-            generate_prontoqa(args.prontoqa_repo_path, args.orig_dataset_path, args.num_trials)
-
+            generate_prontoqa(args.prontoqa_repo_path, args.orig_dataset_path, args.num_trials, args.min_hops, args.max_hops)
+    
+    assert args.min_hops == args.max_hops, "Generation works for different min/max hops, preprocessing not yet, fix code with multiple datasets"
     preprocess_prontoqa(args.orig_dataset_path, args.output_dir, args.num_train, args.num_val)

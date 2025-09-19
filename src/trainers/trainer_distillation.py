@@ -212,3 +212,4 @@ class DistillationTrainer(SimpleTrainer):
             batch["teacher_logits"] = batch["teacher_logits"].to(self.device)
         
         return batch, False
+

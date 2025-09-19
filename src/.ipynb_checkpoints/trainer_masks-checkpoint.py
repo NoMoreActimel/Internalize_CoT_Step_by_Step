@@ -1,12 +1,11 @@
 import numpy as np
 import os
-import re
 import random
 import torch
 import tqdm
 
-from src.trainers.trainer_base import BaseTrainer
-from src.utils import get_sep_position, batch_ids
+from trainer_base import BaseTrainer
+from utils import get_sep_position, batch_ids
 
 
 class AuxiliarMasksRemovalTrainer(BaseTrainer):
@@ -28,30 +27,13 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         # p% of tokens are masked contiguously starting from random pos
         self.random_contiguous_removal = args.random_contiguous_removal
 
-        # chunk-level random masking or removal
-        self.random_chunk_masking = args.random_chunk_masking
-        self.chunk_size = args.chunk_size
-        self.random_chunk_shift = args.random_chunk_shift
-
-        # default is uniform sampling
-        # works for left-to-right, random contiguous and completely random masks
-        self.mask_beta_sampling = args.mask_beta_sampling
-        self.mask_beta_sampling_param = args.mask_beta_sampling_param
-
         self.removal_p = self.masks_removal_schedule[self.schedule_index][1]
         self.no_cot_stage = self.args.no_cot_stage
-        self.no_cot_stage_mask_length = self.args.no_cot_stage_mask_length
-        self.prompt_in_percentage = self.args.prompt_in_percentage
-        self.predict_cot_in_parallel = self.args.parallel_cot_inference_on_full_removal
 
-        if self.no_cot_stage or (not self.args.intermediate_eval):
+        if self.no_cot_stage:
             self.val_removal_ps = [0.0, 1.0]
         else:
-            assert not self.random_chunk_masking, "Intermediate eval does not work with random chunk masking yet!"
-            if self.args.manual_intermediate_eval_values:
-                self.val_removal_ps = [float(item) for item in self.args.manual_intermediate_eval_values.split(',')]
-            else:
-                self.val_removal_ps = [0.0, 0.25, 0.5, 1.0]
+            self.val_removal_ps = [1.0, 0.5, 0.75, 0.9, 0.95, 1.0]
 
         self.val_truncation_kwargs = {
             "eval_flag": self.joint_masked_distribution
@@ -62,9 +44,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             "use_inputs_cot": False,
             "position_ids_shift": self.args.keep_position and self.joint_masked_distribution and self.left_to_right_removal,
             "insert_const_ids_in_cot": False,
-            "random_insertion_prob": None,
-            "predict_cot_in_parallel": False,
-            "force_cot_answer_split": False
+            "random_insertion_prob": None
         }
 
         self.generative_eval_hooks = []
@@ -86,17 +66,11 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.insert_const_ids_func = None
         if self.args.replace_mask:
             self.val_generation_kwargs["insert_const_ids_in_cot"] = True
-            self.insert_const_ids_func = self.get_contiguous_mask_for_gen_eval
+            self.insert_const_ids_func = self.sample_random_contiguous_mask
             self.generative_eval_hooks.append(self.generation_eval_insert_ids_hook)
 
             if not (self.left_to_right_removal or self.random_contiguous_removal):
-                if not self.args.eval_on_contiguous_masks:
-                    self.insert_const_ids_func = self.mask_token_insert_func
-        elif self.args.use_jump_tokens:
-            # For contiguous remove, append jump token only
-            self.val_generation_kwargs["insert_const_ids_in_cot"] = True
-            self.insert_const_ids_func = self.get_jump_for_gen_eval
-            self.generative_eval_hooks.append(self.generation_eval_insert_ids_hook)
+                self.insert_const_ids_func = self.mask_token_insert_func
 
         # Metrics
         additional_metrics = ["removal_p"]
@@ -105,24 +79,13 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             additional_metrics.append("JEPA_loss")
         self.setup_metrics(additional_metrics=additional_metrics)
     
-        if '_' in self.args.best_val_metric:
-            self.best_val_type, self.best_val_metric_type = self.args.best_val_metric.split('_')
-        else:
-            self.best_val_type = "no-cot"
-            # trainer_base already initialized self.best_val_metric_type
-        self.best_val_metric = 0.0
-    
     def _train_process(self):
         step = 0
 
         if self.args.from_pretrained_checkpoint:
-            step = self._resume_checkpoint(
-                self.args.from_pretrained_checkpoint,
-                load_optimizer_state=not self.args.resume_without_optimizer
-            )
+            step = self._resume_checkpoint(self.args.from_pretrained_checkpoint)
 
-        # If JEPA training starts from plain full-COT model
-        # Legacy, use from_pretrained_checkpoint with resume_without_optimizer flag
+        # If JEPA model starts training from plain full-COT model
         if self.args.from_pretrained_fullcot_checkpoint:
             step = self._resume_checkpoint(self.args.from_pretrained_fullcot_checkpoint, load_optimizer_state=False)
 
@@ -155,20 +118,17 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
             if self.accelerator.is_main_process:
                 print(f">>> Using mixed precision: {self.accelerator.state.mixed_precision}")
 
-            for batch_idx, batch in tqdm.tqdm(enumerate(self.train_dataloader)):
+            for batch in tqdm.tqdm(self.train_dataloader):
                 batch, all_cot_removed_in_batch = self.process_input_truncation(batch)
                 # self.move_batch_to_device(batch, self.device) <-- handled by accelerator
 
-                #if batch_idx % 1000 == 0:
-                    #print("[DEBUG]")
-                    #print("\ninput_ids:", batch["input_ids"].shape, "\n", batch["input_ids"][0])
-                    #print("\nlabels:", batch["labels"].shape, "\n", batch["labels"][0], "\n")
+                # print(batch["input_ids"].shape, batch["input_ids"][0])
                 # print(self.tokenizer.batch_decode(batch["input_ids"], skip_special_tokens=False)[0])
 
                 # if not all_cot_removed_in_batch:
                 #     best_val_accuracy = float('-inf')
                 if self.args.max_len_train > 0 and batch["input_ids"].shape[-1] > self.args.max_len_train:
-                    print('skipped')
+                    print ('skipped')
                     continue
 
                 with self.accelerator.accumulate(self.model):
@@ -213,41 +173,28 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
 
-            save_best = self.evaluate(step, base_name="val")
-            if self.args.test_path or (self.args.test_split and self.args.test_split != self.args.val_split):
-                self.evaluate(step, base_name="test")
+            self.evaluate(step)
 
-            self.save_epoch(epoch, save_best=save_best)
+            self.save_epoch(epoch)
     
-    def evaluate(self, step, base_name="val"):
-        save_best = False
+    def evaluate(self, step):
         for val_removal_p in self.val_removal_ps:
             print(f"\nVALIDATION ON VAL_REMOVAL_P = {val_removal_p}\n")
-            name = f"{base_name}_{val_removal_p}" if val_removal_p != 1.0 else base_name
+            name = f"val_{val_removal_p}" if val_removal_p != 1.0 else "val"
                         
             if self.accelerator.is_main_process and self.writer:
                 self.writer.set_step(step, mode=name)
             
             if val_removal_p == 1.0 and self.args.replace_mask:
                 self.val_generation_kwargs["use_inputs_cot"] = True
-                self.val_generation_kwargs["predict_cot_in_parallel"] = self.predict_cot_in_parallel
-                self.val_generation_kwargs["force_cot_answer_split"] = self.predict_cot_in_parallel
             else:
                 self.val_generation_kwargs["use_inputs_cot"] = False
-                self.val_generation_kwargs["predict_cot_in_parallel"] = False
-                self.val_generation_kwargs["force_cot_answer_split"] = False
 
-            if not (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask:
-                random_insertion_prob, insert_const_ids_in_cot = None, None
-                if val_removal_p != 0.0 and val_removal_p != 1.0:
-                    random_insertion_prob = val_removal_p
-                    insert_const_ids_in_cot = True
-                self.val_generation_kwargs["random_insertion_prob"] = random_insertion_prob
-                self.val_generation_kwargs["insert_const_ids_in_cot"] = insert_const_ids_in_cot
+            if not (self.left_to_right_removal or self.random_contiguous_removal):
+                self.val_generation_kwargs["random_insertion_prob"] = val_removal_p if val_removal_p > 0.0 else None
 
-            dataloader = getattr(self, f"{base_name}_dataloader")
-            acc, tok_acc, ppl = self._evaluate(
-                dataloader=dataloader,
+            self._evaluate(
+                dataloader=self.val_dataloader,
                 name=name,
                 truncation_kwargs={"val_removal_p": val_removal_p},
                 generation_kwargs=self.val_generation_kwargs,
@@ -255,14 +202,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 generative_eval_hooks=self.generative_eval_hooks if val_removal_p > 0.0 else [],
                 generative_eval_single_batch_size=self.val_generation_kwargs["insert_const_ids_in_cot"]
             )
-
-            if (self.best_val_type == "full-cot" and val_removal_p == 0.0) or \
-                    (self.best_val_type == 'no-cot' and val_removal_p == 1.0):
-                save_best = self.check_best(acc, tok_acc, ppl)
-
-        return save_best
     
     def generation_eval_insert_ids_hook(self, batch, truncation_kwargs, generation_kwargs):
+        # Regenerate with no trunc
         if generation_kwargs.get("insert_const_ids_in_cot", False):
             ids_to_insert, insert_position = self.insert_const_ids_func(batch, **truncation_kwargs)
             generation_kwargs["ids_to_insert"] = ids_to_insert
@@ -275,9 +217,10 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         return generation_kwargs
 
     def mask_token_insert_func(self, batch, val_removal_p):
-        return self.mask_id.clone().detach().unsqueeze(0), 0
+        return self.mask_id.clone().detach().unsqueeze(0), None
 
-    def _sample_random_contiguous_position(self, input_ids, val_removal_p):
+    def sample_random_contiguous_mask(self, batch, val_removal_p):
+        input_ids = batch["input_ids"]
         first_sep_positions, second_sep_positions, eos_positions = self._get_sep_positions(input_ids)
 
         assert self.same_elements(first_sep_positions) \
@@ -288,54 +231,9 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         n_tokens_to_remove = int(np.round(val_removal_p * length.item()))
 
         insert_position = 0 if self.left_to_right_removal else random.choice(torch.arange(0, length - n_tokens_to_remove + 1))
-        return insert_position, n_tokens_to_remove
+        ids_to_insert = torch.full((input_ids.shape[0], n_tokens_to_remove), self.mask_id).to(self.device)
 
-    def _extract_contiguous_mask_positions(self, input_ids):
-        sample = self.tokenizer.batch_decode(input_ids)[0]
-        m = re.search(r'##\s*(.*?)\s*##', sample)
-        removed_part = m.group(1).strip() if m else None
-        removed_part_split = removed_part.split(' ')
-        n_tokens_to_remove = int(removed_part_split[1])
-        insert_position = 0 if self.left_to_right_removal else int(removed_part_split[-1])
-        return insert_position, n_tokens_to_remove
-    
-    # instead of sampling contiguous mask once again, extract it from input_ids to match the added ## removed ## prefix
-    def get_contiguous_mask_for_gen_eval(self, batch, val_removal_p):
-        input_ids = batch["input_ids"]
-        if input_ids.shape[0] != 1:
-            print("\nUsing get_contiguous_mask_for_gen_eval with input_ids.shape[0] > 1,")
-            print("ensure the same mask is applied in process_input_truncation for all samples!\n")
-        
-        if self.no_cot_stage:
-            # no prefix available - sample random mask position
-            insert_position, n_tokens_to_remove = self._sample_random_contiguous_position(input_ids, val_removal_p)
-        else:
-            # mask positions are already in prefix, we need to extract them to be consistent with it
-            insert_position, n_tokens_to_remove = self._extract_contiguous_mask_positions(input_ids)
-
-        mask_shape = (input_ids.shape[0], n_tokens_to_remove)
-        ids_to_insert = torch.full(mask_shape, self.mask_id.item(), dtype=torch.long, device=input_ids.device)
-        #print("[DEBUG PARTIAL EVAL, get_contiguous_mask_for_gen_eval]")
-        #print("sample:", self.tokenizer.batch_decode(input_ids)[0])
-        #print("insert_position:", insert_position)
-        #print("n_tokens_to_remove:", n_tokens_to_remove)
-        #print()
-
-        if self.args.use_jump_tokens:
-            jump_id = self.model.jump_token_ids[n_tokens_to_remove - 1]
-            jump_id_tensor = self._fill_tensor_like_with_last_dim(input_ids, jump_id, 1)
-            ids_to_insert = torch.cat([ids_to_insert, jump_id_tensor], dim=1)
         return ids_to_insert, insert_position
-
-    def get_jump_for_gen_eval(self, batch, val_removal_p):
-        input_ids = batch["input_ids"]
-        if self.no_cot_stage:
-            insert_position, n_tokens_to_remove = self._sample_random_contiguous_position(input_ids, val_removal_p)
-        else:
-            insert_position, n_tokens_to_remove = self._extract_contiguous_mask_positions(input_ids)
-        jump_id = self.model.jump_token_ids[n_tokens_to_remove - 1]
-        jump_id_tensor = self._fill_tensor_like_with_last_dim(input_ids, jump_id, 1)
-        return jump_id_tensor, insert_position
         
     def process_input_truncation(self, batch, val_removal_p=None):
         input_ids = batch['input_ids']
@@ -359,15 +257,15 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 compute_full_input_ids=self.jepa_training
             )
 
-        # if self.removal_p == 0.0 and (not self.joint_masked_distribution):
-        #     batch = {
-        #         "input_ids": input_ids,
-        #         "labels": labels,
-        #         "full_input_ids": input_ids.clone(),
-        #         "full_labels": labels.clone(),
-        #         "position_ids": None
-        #     }
-        #     return batch, False
+        if self.removal_p == 0.0 and (not self.joint_masked_distribution):
+            batch = {
+                "input_ids": input_ids,
+                "labels": labels,
+                "full_input_ids": input_ids.clone(),
+                "full_labels": labels.clone(),
+                "position_ids": None
+            }
+            return batch, False
 
         if self.left_to_right_removal or self.random_contiguous_removal:
             return self.contiguous_truncation(
@@ -404,23 +302,20 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
     def same_elements(x):
         return (x == x[0]).all()
 
-    def _get_prefix_contiguous_truncation(self, n_tokens_to_remove, removal_p, left_to_right=True, L=0):
+    def _get_prefix_contiguous_truncation(self, n_tokens_to_remove, left_to_right=True, L=0):
         if self.no_cot_stage:
             prefix = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
             ignored_prefix_labels = torch.full_like(prefix, -100)
             return prefix, ignored_prefix_labels
         
-        if self.prompt_in_percentage:
-            prefix_str = f" ## masked {round(removal_p * 100)} % of CoT ## "
+        if left_to_right:
+            prefix_str = f" ## masked {n_tokens_to_remove} ## "
         else:
-            if left_to_right:
-                prefix_str = f" ## masked {n_tokens_to_remove} ## "
-            else:
-                prefix_str = f" ## masked {n_tokens_to_remove} from {L} ## "
+            prefix_str = f" ## masked {n_tokens_to_remove} from {L} ## "
 
         prefix = self.tokenizer(
             prefix_str,
-            add_special_tokens=False,
+            add_special_tokens=True,
             truncation=True,
             return_tensors="pt"
         )["input_ids"].to(self.device).squeeze(0)
@@ -431,35 +326,20 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels
 
-    @staticmethod
-    def _fill_tensor_like_with_last_dim(ids, fill_value, last_dim):
-        shape = list(ids.shape)
-        shape[-1] = last_dim
-        fill_tensor = torch.full(size=shape, fill_value=fill_value, dtype=torch.long, device=ids.device)
-        return fill_tensor
-
     def _concat_ids(self, ids, prefix_ids, cot_start, start, end, eos, dim, labels_flag=False):
         ids_to_cat = [ids[..., :cot_start - 1], prefix_ids] # move EOS_TOKEN_ID in prefix
         if cot_start < start:
             ids_to_cat.append(ids[..., cot_start:start])
 
-        if self.args.use_jump_tokens:
-            jump_id = -100 if labels_flag else self.model.jump_token_ids[end - start - 1]
-            jump_id_tensor = self._fill_tensor_like_with_last_dim(ids, jump_id, 1)
-            ids_to_cat.append(jump_id_tensor)
-
-        # Otherwise, it is either no_cot_stage without replace_mask (full deletion), or we plug in masks of original length
         if self.args.replace_mask:
-            if self.no_cot_stage and self.no_cot_stage_mask_length is not None:
-                mask_tensor = self._fill_tensor_like_with_last_dim(ids, self.mask_id.item(), self.no_cot_stage_mask_length)
-                ids_to_cat.append(mask_tensor)
+            if labels_flag and (self.args.replace_mask_in_labels is False):
+                # Recover all COT tokens in labels in case of mask replacement
+                ids_to_cat.append(ids[..., start:end])
             else:
-                if labels_flag and (self.args.replace_mask_in_labels is False):
-                    # Recover all COT tokens in labels in case of mask replacement
-                    ids_to_cat.append(ids[..., start:end])
-                else:
-                    mask_tensor = self._fill_tensor_like_with_last_dim(ids, self.mask_id.item(), (end - start).item())
-                    ids_to_cat.append(mask_tensor)
+                mask_shape = list(ids.shape)
+                mask_shape[-1] = (end - start).item()
+                mask_tensor = torch.full(size=mask_shape, fill_value=self.mask_id.item(), dtype=torch.long, device=ids.device)
+                ids_to_cat.append(mask_tensor)
         
         ids_to_cat.append(ids[..., end:eos + 1])
 
@@ -475,12 +355,6 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         return full_input_ids_new, full_labels_new, full_position_ids_new
     
-    def _sample_removal_p(self):
-        if self.mask_beta_sampling:
-            a = self.mask_beta_sampling_param
-            return random.betavariate(a, a)
-        return random.uniform(0, 1)
-        
     def _contiguous_truncation(
             self,
             input_ids,
@@ -503,7 +377,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         end = start + n_tokens_to_remove
         eos = eos_positions[0] if batched else eos_positions
 
-        prefix, ignored_prefix_labels = self._get_prefix_contiguous_truncation(n_tokens_to_remove, removal_p, left_to_right, offset)
+        prefix, ignored_prefix_labels = self._get_prefix_contiguous_truncation(n_tokens_to_remove, left_to_right, offset)
 
         if input_ids.ndim == 2:
             batch_size = input_ids.shape[0]
@@ -598,7 +472,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         for batch_idx in range(batch_size):
             if joint_masked_distrubution:
-                removal_p = self._sample_removal_p()
+                removal_p = random.uniform(0, 1)
 
             batch_i = self._contiguous_truncation(
                 input_ids[batch_idx],
@@ -659,57 +533,18 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         mask = torch.isin(all_indices, removed_indices)
         remaining_indices = all_indices[~mask]
         return remaining_indices, removed_indices, mask
-    
-    @staticmethod
-    def _get_random_sentence_cot_mask(cot_start, cot_end, n_tokens_to_remove):
-        # TO-DO: is there a way to align token-level mask with end-of-sentence dots?
-        pass
-    
-    @staticmethod
-    def _get_random_chunks_cot_mask(cot_start, cot_end, removal_p, chunk_size, random_shift=True):        
-        chunk_shift = random.choice(torch.arange(0, chunk_size)) if random_shift else 0
-        chunk_shift = torch.tensor(chunk_shift, device=cot_start.device)
 
-        cot_length = (cot_end - cot_start).item()
-        n_chunks_total = (cot_length + chunk_shift.item() + chunk_size - 1) // chunk_size
-        n_chunks_to_remove = int(np.round(removal_p * n_chunks_total))
-
-        all_indices = torch.arange(cot_start, cot_end, device=cot_start.device)
-
-        if n_chunks_to_remove == 0:
-            mask = torch.zeros_like(all_indices, dtype=torch.bool)
-            return all_indices, torch.empty(0, dtype=torch.long, device=cot_start.device), mask, chunk_shift
-
-        removed_chunks, _ = torch.sort(torch.randperm(
-            n_chunks_total,
-            device=cot_start.device,
-            dtype=torch.long
-        )[:n_chunks_to_remove])
-
-        per_token_chunk_ids = (all_indices - cot_start + chunk_shift) // chunk_size
-
-        mask = torch.isin(per_token_chunk_ids, removed_chunks)
-        removed_indices = all_indices[mask]
-        remaining_indices = all_indices[~mask]
-        return remaining_indices, removed_indices, mask, chunk_shift
-
-    def _get_prefix_random_masking(self, cot_start, removed_indices, removal_p, chunk_shift=None):
+    def _get_prefix_random_masking(self, cot_start, removed_indices):
         if self.no_cot_stage:
             prefix = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
             ignored_prefix_labels = torch.full_like(prefix, -100)
             return prefix, ignored_prefix_labels
         
-        if self.prompt_in_percentage:
-            prefix_str = f" ## masked {round(removal_p * 100)} % of CoT ## "
+        if self.args.replace_mask:
+            prefix_str = f" ## masked {len(removed_indices)} ## "
         else:
-            if self.args.replace_mask:
-                prefix_str = f" ## masked {len(removed_indices)} ## "
-            else:
-                prefix_str = f" ## removed tokens: {(removed_indices - cot_start).tolist()} ## " # for sanity check
+            prefix_str = f" ## removed tokens: {(removed_indices - cot_start).tolist()} ## "
 
-        if chunk_shift is not None:
-            prefix_str = prefix_str[:-4] + f", shift {chunk_shift} ## "
-        
         prefix = self.tokenizer(
             prefix_str,
             add_special_tokens=True,
@@ -744,25 +579,15 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
         for batch_idx in range(batch_size):
             if joint_masked_distrubution:
-                removal_p = self._sample_removal_p()
+                removal_p = random.uniform(0, 1)
             n_tokens_to_remove = int(np.round(removal_p * nonmasked_lengths[batch_idx].item()))
 
             cot_start = first_sep_positions[batch_idx] + 1
             cot_end = second_sep_positions[batch_idx]
             eos = eos_positions[batch_idx]
 
-            if self.random_chunk_masking:
-                remaining_indices, removed_indices, mask, chunk_shift = self._get_random_chunks_cot_mask(
-                    cot_start, cot_end, removal_p, chunk_size=self.chunk_size, random_shift=self.random_chunk_shift
-                )
-            else:
-                remaining_indices, removed_indices, mask = self._get_random_cot_mask(
-                    cot_start, cot_end, n_tokens_to_remove
-                )
-                chunk_shift = None
-            prefix, ignored_prefix_labels = self._get_prefix_random_masking(
-                cot_start, removed_indices, removal_p, chunk_shift=chunk_shift
-            )
+            remaining_indices, removed_indices, mask = self._get_random_cot_mask(cot_start, cot_end, n_tokens_to_remove)
+            prefix, ignored_prefix_labels = self._get_prefix_random_masking(cot_start, removed_indices)
 
             if not self.args.replace_mask: # truncate selected tokens
                 if remaining_indices.shape[-1]:
