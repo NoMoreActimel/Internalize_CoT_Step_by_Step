@@ -48,24 +48,14 @@ def get_sep_position(input_ids, sep_id, skip=0):
 
     return sep_positions
 
-def safe_cot_split(text):
-    tmp = text.split(COT_ANSWER_SPLIT_PATTERN, 1)
-    
-    if (not hasattr(tmp, "__len__")) or len(tmp) != 2:
-        # try without spaces
-        cot, ans = text.split(COT_ANSWER_SPLIT_PATTERN.strip(), 1)
-    else:
-        cot, ans = tmp
-    
-    return cot.strip(), ans.strip()
-
 
 def extract_answer(text):
     split_pattern = COT_ANSWER_SPLIT_PATTERN
     if split_pattern not in text:
         return text.strip().replace(',', '')
     else:
-        _, ans = safe_cot_split(text)
+        _, ans = text.split(COT_ANSWER_SPLIT_PATTERN, 1)
+        ans = ans.strip()
         ans = COT_ANSWER_SPLIT_PATTERN + ans
         ans = ans.strip().replace(',', '')
         return ans
@@ -76,7 +66,8 @@ def extract_cot(text):
         #import pdb; pdb.set_trace()
         return None
     else:
-        cot, _ = safe_cot_split(text)
+        cot, _ = text.split(COT_ANSWER_SPLIT_PATTERN, 1)
+        cot = cot.strip()
         return cot
 
 
@@ -107,38 +98,6 @@ class DoubleEOSLogitsProcessor(LogitsProcessor):
             self.init = True
             self.eos_count_init = eos_count
         done = (eos_count - self.eos_count_init) >= 2
-        if done.any():
-            scores[done, :] = float('-inf')
-            scores[done, self.eos_token_id] = 0
-        return scores
-
-
-class SingleEOSStoppingCriteria(StoppingCriteria):
-    def __init__(self, eos_token_id):
-        super().__init__()
-        self.eos_token_id = eos_token_id
-        self.init = False
-
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor):
-        eos_count = (input_ids == self.eos_token_id).sum(dim=-1)
-        if not self.init:
-            self.init = True
-            self.eos_count_init = eos_count
-        done = (eos_count - self.eos_count_init) >= 1
-        return done.all()
-
-class SingleEOSLogitsProcessor(LogitsProcessor):
-    def __init__(self, eos_token_id):
-        super().__init__()
-        self.eos_token_id = eos_token_id
-        self.init = False
-    
-    def __call__(self, input_ids, scores):
-        eos_count = (input_ids == self.eos_token_id).sum(dim=-1)
-        if not self.init:
-            self.init = True
-            self.eos_count_init = eos_count
-        done = (eos_count - self.eos_count_init) >= 1
         if done.any():
             scores[done, :] = float('-inf')
             scores[done, self.eos_token_id] = 0
