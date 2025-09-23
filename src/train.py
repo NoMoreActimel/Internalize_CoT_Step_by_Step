@@ -194,6 +194,7 @@ def main():
     # SubProsQA training
     parser.add_argument('--subprosqa_training', action='store_true', default=False)
     parser.add_argument('--subprosqa_config_path', type=str, default=None)
+    parser.add_argument('--dont_mask_question_in_labels', action='store_true', default=False)
 
     parser.add_argument('--n_generative_eval_batches', type=int, default=1)
 

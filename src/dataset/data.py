@@ -46,6 +46,8 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     dataset_kwargs["random_cot_strategy"] = getattr(args, 'random_cot_strategy', None)
     dataset_kwargs["random_cot_length"] = getattr(args, 'random_cot_length', None)
 
+    dataset_kwargs["dont_mask_question_in_labels"] = getattr(args, 'dont_mask_question_in_labels', None)
+
     # In case of huggingface dataset, always use our CoTChunksHFDataset instead of native iCoT one
     ours_sbs_flag = (getattr(args, 'removal_type', None) == 'step-by-step') \
         and (getattr(args, 'huggingface_dataset', None) \
