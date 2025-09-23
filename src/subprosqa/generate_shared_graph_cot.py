@@ -6,6 +6,7 @@ import random
 
 from collections import defaultdict
 from typing import List, Tuple, Dict, Optional, Set
+from sklearn.model_selection import train_test_split
 
 from src.utils import COT_ANSWER_SPLIT_PATTERN
 
@@ -31,6 +32,10 @@ class SubProsQADataset:
         dataset_path=None, # for precomputed dataset, either save or load
         load_dataset=False,
         depth_range=(3, 6),
+        split_train_val_test=True,
+        val_size=0.1,
+        test_size=0.1,
+        split_random_state=42,
         seed=42
     ):
         random.seed(seed)
@@ -66,6 +71,15 @@ class SubProsQADataset:
             
             self.dataset = self.create_dataset()
             self.dataset = self.format_samples()
+            if self.split_train_val_test:
+                self.train, self.val, self.test = train_test_split(
+                    self.dataset, random_state=self.split_random_state,
+                    train_size=1 - self.test_size - self.val_size,
+                    test_size=self.test_size
+                )
+                dataset_dir, dataset_name = self.dataset_path.rsplit('/', 1)
+                for split_name, dataset in zip(['train', 'val', 'test'], [self.train, self.val, self.test]):
+                    self._save_dataset(dataset, dataset_dir + f'/{split_name}_{dataset_name}')
             self._save_dataset(self.dataset, self.dataset_path)
 
         print(f"Graph created: {num_nodes} nodes, {self.graph.number_of_edges()} edges")
