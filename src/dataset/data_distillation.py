@@ -55,6 +55,8 @@ class DistillationDataset(Dataset):
             chunk_data = pickle.load(f)
         
         self.next_chunk_index += 1
+        if self.next_chunk_index >= len(self.chunk_files):
+            self.next_chunk_index = 0
         self.current_index_within_chunk = 0
         self.current_chunk_length = len(chunk_data['generated_sequences'])
 

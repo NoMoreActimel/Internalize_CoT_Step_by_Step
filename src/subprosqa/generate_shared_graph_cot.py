@@ -7,6 +7,8 @@ import random
 from collections import defaultdict
 from typing import List, Tuple, Dict, Optional, Set
 
+from src.utils import COT_ANSWER_SPLIT_PATTERN
+
 class SubProsQADataset:
     """
     Generate ProsQA-style dataset with binary questions with a single huge graph shared between all samples.
@@ -63,6 +65,7 @@ class SubProsQADataset:
                     self._save_candidate_samples(self.candidate_samples, self.candidate_samples_path)
             
             self.dataset = self.create_dataset()
+            self.dataset = self.format_samples()
             self._save_dataset(self.dataset, self.dataset_path)
 
         print(f"Graph created: {num_nodes} nodes, {self.graph.number_of_edges()} edges")
@@ -302,11 +305,11 @@ class SubProsQADataset:
         
         # Randomly order the options in the question
         if random.random() < 0.5:
-            question = f"{source_concept} is {reachable_concept} or {unreachable_concept}"
+            question = f"{source_concept} is {reachable_concept} or {unreachable_concept}?"
             answer = reachable_concept
             correct_option = 0
         else:
-            question = f"{source_concept} is {unreachable_concept} or {reachable_concept}"
+            question = f"{source_concept} is {unreachable_concept} or {reachable_concept}?"
             answer = reachable_concept
             correct_option = 1
         
@@ -339,7 +342,7 @@ class SubProsQADataset:
     
     def _structured_context(self, edges: List[Tuple[int, int]]) -> str:
         """Generate structured context representation."""
-        edge_strs = [f"{self.concepts[u]} -> {self.concepts[v]}" for u, v in edges]
+        edge_strs = [f"{self.concepts[u]}->{self.concepts[v]}" for u, v in edges]
         return f"[EDGES] {', '.join(edge_strs)}"
     
     def _natural_context(self, edges: List[Tuple[int, int]]) -> str:
@@ -408,6 +411,15 @@ class SubProsQADataset:
         
         self._print_dataset_stats(dataset)
         return dataset
+    
+    def format_samples(self):
+        for sample in self.dataset:
+            if self.representation == 'structured':
+                sample['contextn'] = sample['context'][len("[EDGES] "):]
+            sample['question'] = f"{sample['context']}\nQuestion: {sample['question']}\nAnswer: "
+            sample['answer'] = ", ".join(sample['reasoning_steps'])
+            sample['answer'] += f" {COT_ANSWER_SPLIT_PATTERN} {sample['answer']}"
+        return self.dataset
     
     def _print_graph_stats(self):
         """Print graph statistics."""
@@ -533,13 +545,12 @@ if __name__ == "__main__":
             print("="*60)
             
             sample = dataset[random_index]
-            print(f"\nQuestion: {sample['question']}")
-            print("Context:")
-            for line in [sample['context'][i:i+200] for i in range(0, len(sample['context']), 200)]:
-                print(line)
-            
-            print(f"Reasoning path: {' -> '.join(sample['path'])}")
-            print(f"Answer: {sample['answer']}")
+            print(sample['question'])
+            print(sample['answer'])
+            # for line in [sample['question'][i:i+200] for i in range(0, len(sample['context']), 200)]:
+            #     print(line)
+            # print(f"Reasoning path: {'->'.join(sample['path'])}")
+            # print(f"Answer: {sample['answer']}")
             print(f"\nPath from {sample['source']} to {sample['reachable_target']}: YES (length {sample['path_length']})")
             print(f"Path from {sample['source']} to {sample['unreachable_target']}: NO")
     

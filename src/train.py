@@ -1,6 +1,7 @@
 import math
 import argparse
 import os
+import json
 import sys
 import tqdm
 import inspect
@@ -8,18 +9,18 @@ import logging
 import random
 import torch
 
+from src.configuration_model import ImplicitModelConfig
 from src.dataset.data import load_data
 from src.dataset.data_chunked import add_new_tokens
 from src.dataset.data_distillation import load_distillation_data
 from src.model import ImplicitModel
 from src.model_jepa import JEPAImplicitModel
-from src.configuration_model import ImplicitModelConfig
+from src.subprosqa.patch_vocabulary import prepare_subprosqa_model_and_tokenizer
 from src.trainer.trainer_stepbystep import StepByStepTrainer
 from src.trainer.trainer_chunks import ChunkRemovalTrainer
 from src.trainer.trainer_masks import AuxiliarMasksRemovalTrainer
 from src.trainer.trainer_simple import SimpleTrainer
 from src.trainer.trainer_distillation import DistillationTrainer
-
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -189,6 +190,10 @@ def main():
                         help='Weight for KL divergence loss')
     parser.add_argument('--distillation_beta', type=float, default=0.3,
                         help='Weight for cross-entropy loss')
+                    
+    # SubProsQA training
+    parser.add_argument('--subprosqa_training', action='store_true', default=False)
+    parser.add_argument('--subprosqa_config_path', type=str, default=None)
 
     parser.add_argument('--n_generative_eval_batches', type=int, default=1)
 
@@ -378,6 +383,16 @@ def main():
 
     # Create Model
     config, model, tokenizer = create_model(args, device)
+    if args.subprosqa_training:
+        config_path = args.subprosqa_config_path
+        if config_path is None:
+            config_path = args.train_path.rsplit('/', 1)[0] + '/config.json'
+        with open(config_path, 'r') as f:
+            dataset_config = json.load(f)
+        model, tokenizer = prepare_subprosqa_model_and_tokenizer(
+            model, tokenizer, dataset_config['num_subprosqa_concepts']
+        )
+    
     if args.removal_type == "random-chunks":
         model, tokenizer, new_token_ids = add_new_tokens(model, tokenizer, args.num_new_tokens + 1)
         start_id, new_token_ids = new_token_ids[0], new_token_ids[1:]
