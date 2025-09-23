@@ -421,12 +421,12 @@ class SubProsQADataset:
         print(f"  Degree distribution: {nx.degree_histogram(self.graph)}")
         # print(f"  Connected components: {nx.connected_components(self.graph)}")
         print(f"  Transitivity: {nx.transitivity(self.graph)}")
-        print(f"  Closeness centrality: {nx.closeness_centrality(self.graph)}")
-        print(f"  Betweenness centrality: {nx.betweenness_centrality(self.graph)}")
+        #print(f"  Closeness centrality: {nx.closeness_centrality(self.graph)}")
+        #print(f"  Betweenness centrality: {nx.betweenness_centrality(self.graph)}")
         # print(f"  Eigenvector centrality: {nx.eigenvector_centrality(self.graph)}")
-        print(f"  PageRank: {nx.pagerank(self.graph)}")
-        print(f"  Clustering coefficient: {nx.clustering(self.graph)}")
-        print(f"  Degree centrality: {nx.degree_centrality(self.graph)}")
+        #print(f"  PageRank: {nx.pagerank(self.graph)}")
+        #print(f"  Clustering coefficient: {nx.clustering(self.graph)}")
+        #print(f"  Degree centrality: {nx.degree_centrality(self.graph)}")
         print(f"  Degree assortativity: {nx.degree_assortativity_coefficient(self.graph)}")
     
     def _print_dataset_stats(self, dataset):
