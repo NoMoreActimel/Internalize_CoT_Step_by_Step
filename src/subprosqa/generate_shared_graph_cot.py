@@ -72,11 +72,7 @@ class SubProsQADataset:
             self.dataset = self.create_dataset()
             self.dataset = self.format_samples()
             if self.split_train_val_test:
-                self.train, self.val, self.test = train_test_split(
-                    self.dataset, random_state=self.split_random_state,
-                    train_size=1 - self.test_size - self.val_size,
-                    test_size=self.test_size
-                )
+                self.train, self.val, self.test = self._split_train_val_test()
                 dataset_dir, dataset_name = self.dataset_path.rsplit('/', 1)
                 for split_name, dataset in zip(['train', 'val', 'test'], [self.train, self.val, self.test]):
                     self._save_dataset(dataset, dataset_dir + f'/{split_name}_{dataset_name}')
@@ -165,6 +161,20 @@ class SubProsQADataset:
                     loaded_samples[source][key] = set(value)
         
         return loaded_samples
+
+    def _split_train_val_test(self):
+        train_val, test = train_test_split(
+            self.dataset, 
+            random_state=self.split_random_state,
+            test_size=self.test_size
+        )
+        adjusted_val_size = self.val_size / (1 - self.test_size)
+        train, val = train_test_split(
+            train_val,
+            random_state=self.split_random_state,
+            test_size=adjusted_val_size
+        )
+        return train, val, test
 
     @staticmethod
     def _save_dataset(dataset: List[Dict], dataset_path: str):

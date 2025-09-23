@@ -58,6 +58,7 @@ class CoTDatasetChunks(Dataset):
             pad_query=False,
             max_query_length=-1,
             query_pad_id=None,
+            dont_mask_question_in_labels=False,
             **kwargs
     ):
         """
@@ -81,6 +82,7 @@ class CoTDatasetChunks(Dataset):
         self.max_size = max_size
         self.chunk_size = chunk_size
         self.num_new_tokens = num_new_tokens
+        self.dont_mask_question_in_labels = dont_mask_question_in_labels
 
         self._init_pad_attributes(pad_cot, max_cot_length, cot_pad_id, pad_query, max_query_length, query_pad_id)
 
@@ -269,9 +271,10 @@ class CoTDatasetChunks(Dataset):
         input_ids = item["input_ids"]
 
         labels = copy.deepcopy(input_ids)
-        # sep_idx = labels.index(self.separator) + 1
-        sep_idx = (labels == self.separator).int().argmax().item() + 1
-        labels[:sep_idx] = -100
+        if not self.dont_mask_question_in_labels:
+            # sep_idx = labels.index(self.separator) + 1
+            sep_idx = (labels == self.separator).int().argmax().item() + 1
+            labels[:sep_idx] = -100
 
         return {
             "input_ids": torch.tensor(input_ids.clone().detach(), dtype=torch.long),
