@@ -51,6 +51,10 @@ class SubProsQADataset:
         self.dataset_path = dataset_path
         self.load_dataset = load_dataset
         self.depth_range = depth_range
+        self.split_train_val_test = split_train_val_test
+        self.val_size = val_size
+        self.test_size = test_size
+        self.split_random_state = split_random_state
 
         self.concepts = [f"concept{i:04d}" for i in range(num_nodes)]
         self.graph = self._build_dag()
@@ -71,6 +75,7 @@ class SubProsQADataset:
             
             self.dataset = self.create_dataset()
             self.dataset = self.format_samples()
+            
             if self.split_train_val_test:
                 self.train, self.val, self.test = self._split_train_val_test()
                 dataset_dir, dataset_name = self.dataset_path.rsplit('/', 1)
@@ -441,8 +446,7 @@ class SubProsQADataset:
             if self.representation == 'structured':
                 sample['contextn'] = sample['context'][len("[EDGES] "):]
             sample['question'] = f"{sample['context']}\nQuestion: {sample['question']}\nAnswer: "
-            sample['answer'] = ", ".join(sample['reasoning_steps'])
-            sample['answer'] += f" {COT_ANSWER_SPLIT_PATTERN} {sample['answer']}"
+            sample['answer'] = ", ".join(sample['reasoning_steps']) + COT_ANSWER_SPLIT_PATTERN + sample['answer']
         return self.dataset
     
     def _print_graph_stats(self):

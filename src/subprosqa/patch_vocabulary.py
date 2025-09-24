@@ -111,9 +111,9 @@ class SubProsQAVocabularyPatcher:
         
         return model
 
-def prepare_subprosqa_model_and_tokenizer(model: PreTrainedModel, num_concepts: int = 10000) -> tuple:
+def prepare_subprosqa_model_and_tokenizer(model: PreTrainedModel, base_model_name: str, num_concepts: int = 10000) -> tuple:
     patcher = SubProsQAVocabularyPatcher(num_concepts=num_concepts)
-    tokenizer = patcher.create_custom_tokenizer()
+    tokenizer = patcher.create_custom_tokenizer(base_model_name)
     model = patcher.patch_model(model, tokenizer, initialize_strategy='random')
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     print(f"Vocabulary size: {len(tokenizer.vocab)}")
