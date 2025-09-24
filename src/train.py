@@ -391,7 +391,7 @@ def main():
         with open(config_path, 'r') as f:
             dataset_config = json.load(f)
         model, tokenizer = prepare_subprosqa_model_and_tokenizer(
-            model, tokenizer, dataset_config['num_subprosqa_concepts']
+            model, args.model, dataset_config['num_nodes']
         )
     
     if args.removal_type == "random-chunks":
