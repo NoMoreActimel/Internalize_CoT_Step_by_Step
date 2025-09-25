@@ -43,14 +43,15 @@ class SubProsQATokenizer(PreTrainedTokenizer):
         self.max_length = len(self.__sorted_tokens[0])
         self.min_length = len(self.__sorted_tokens[-1])
 
-        self.add_special_tokens({
+        self.special_tokens_map = {
             'pad_token': '<pad>',
             'unk_token': '<unk>',
             'bos_token': '<bos>',
             'eos_token': '<eos>',
             'sep_token': '<sep>',
             'mask_token': '<mask>'
-        })
+        }
+        self.add_special_tokens(self.special_tokens_map)
 
     def _tokenize(self, text: str, **kwargs):
         """
@@ -90,6 +91,31 @@ class SubProsQATokenizer(PreTrainedTokenizer):
 
     def _convert_id_to_token(self, index: int) -> str:
         return self.__id_tokens.get(index, self.unk_token)
+    
+    def decode(self, token_ids, skip_special_tokens: bool = False, clean_up_tokenization_spaces: bool = True, **kwargs) -> str:
+        """
+        Decode token IDs back to text, handling -100 values properly.
+        -100 values are ignored during decoding as they represent masked tokens.
+        """
+        if isinstance(token_ids, torch.Tensor):
+            token_ids = token_ids.tolist()
+        
+        # Filter out -100 values (masked tokens) and convert to tokens
+        valid_token_ids = [token_id for token_id in token_ids if token_id != -100]
+        
+        if not valid_token_ids:
+            return ""
+
+        tokens = []
+        for token_id in valid_token_ids:
+            if token_id in self.__id_tokens:
+                token = self.__id_tokens[token_id]
+                if not skip_special_tokens or token not in self.special_tokens_map.values():
+                    tokens.append(token)
+            else:
+                tokens.append(self.unk_token)
+        
+        return ''.join(tokens)
 
     def get_vocab(self) -> Dict[str, int]:
         return self.__token_ids.copy()
