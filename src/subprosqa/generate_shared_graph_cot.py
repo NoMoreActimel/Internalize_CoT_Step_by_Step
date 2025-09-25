@@ -444,7 +444,7 @@ class SubProsQADataset:
     def format_samples(self):
         for sample in self.dataset:
             if self.representation == 'structured':
-                sample['contextn'] = sample['context'][len("[EDGES] "):]
+                sample['context'] = sample['context'][len("[EDGES] "):]
             sample['question'] = f"{sample['context']}\nQuestion: {sample['question']}\nAnswer: "
             sample['answer'] = ", ".join(sample['reasoning_steps']) + COT_ANSWER_SPLIT_PATTERN + sample['answer']
         return self.dataset
