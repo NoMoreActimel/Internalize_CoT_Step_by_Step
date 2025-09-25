@@ -11,8 +11,8 @@ from transformers.utils import is_peft_available
 import sys
 import warnings
 
-from configuration_model import ImplicitModelConfig
-from utils import get_sep_position, DoubleEOSStoppingCriteria, DoubleEOSLogitsProcessor, SingleEOSStoppingCriteria, SingleEOSLogitsProcessor, COT_ANSWER_SPLIT_PATTERN
+from src.configuration_model import ImplicitModelConfig
+from src.utils import get_sep_position, DoubleEOSStoppingCriteria, DoubleEOSLogitsProcessor, SingleEOSStoppingCriteria, SingleEOSLogitsProcessor, COT_ANSWER_SPLIT_PATTERN
 
 if is_peft_available():
     from peft import LoraConfig, PeftConfig, PeftModel, TaskType, get_peft_model
