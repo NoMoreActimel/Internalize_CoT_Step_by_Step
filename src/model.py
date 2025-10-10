@@ -36,7 +36,7 @@ class ImplicitModel(nn.Module):
         if self.use_peft:
             self.become_peft_model()
         
-        self.tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_name)
+        self.change_tokenizer(AutoTokenizer.from_pretrained(config.tokenizer_name))
 
         # Needed for evaluation with random inserts:
         # In case we insert too many masks and hit the max number of tokens, we need to expand the limits
@@ -46,6 +46,8 @@ class ImplicitModel(nn.Module):
         # Modified externally, together with tokenizer
         self.jump_token_ids = None
 
+    def change_tokenizer(self, tokenizer):
+        self.tokenizer = tokenizer
         self.split_ids = torch.tensor(self.tokenizer.encode(COT_ANSWER_SPLIT_PATTERN, add_special_tokens=False))
         print(f"Model generate with random insertions will use the first of split_ids: {self.split_ids}.")
         if self.split_ids[0].item() == self.tokenizer.encode(" ", add_special_tokens=False)[0]:
@@ -131,7 +133,10 @@ class ImplicitModel(nn.Module):
             max_cot_tokens=None,
             return_logits=False
     ):
+        print("First gen_sep_positions call, skip:", 1 if use_inputs_cot else 0)
+        print("First gen_sep_positions call, input_ids:", input_ids)
         sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=1 if use_inputs_cot else 0)
+        print("First gen_sep_positions called, sep_positions:", sep_positions)
         batch_size = input_ids.shape[0]
 
         # Since there's one eos after CoT and another after final answer, we need to wait for two eos

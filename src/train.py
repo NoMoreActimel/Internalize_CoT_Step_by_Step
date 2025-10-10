@@ -190,6 +190,14 @@ def main():
                         help='Weight for KL divergence loss')
     parser.add_argument('--distillation_beta', type=float, default=0.3,
                         help='Weight for cross-entropy loss')
+    
+    # Distillation data generation in process
+    parser.add_argument('--distillation_generate_in_process', action='store_true', default=False,
+                        help='Generate distillation data in process')
+    parser.add_argument('--distillation_generator_args_path', type=str, default=None,
+                        help='Path to generator args for distillation')
+    parser.add_argument('--distillation_chunk_storage_limit', type=int, default=None,
+                        help='Chunk storage limit for distillation')
                     
     # SubProsQA training
     parser.add_argument('--subprosqa_training', action='store_true', default=False)
@@ -426,14 +434,7 @@ def main():
     # Load Data
     if args.distillation:
         print("Loading distillation data...")
-        train_dataloader, val_dataloader, test_dataloader = load_distillation_data(
-            train_dir_path=args.train_path,
-            val_dir_path=args.val_path,
-            tokenizer=tokenizer,
-            batch_size=args.batch_size,
-            max_length=args.max_len_train if args.max_len_train > 0 else None,
-            test_dir_path=args.test_path
-        )
+        train_dataloader, val_dataloader, test_dataloader = load_distillation_data(args, tokenizer)
     else:
         train_dataloader, val_dataloader, test_dataloader = load_data(args, tokenizer, new_token_ids)
 

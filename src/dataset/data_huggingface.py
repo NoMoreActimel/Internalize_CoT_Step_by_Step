@@ -25,6 +25,7 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
             chunk_size=8,
             num_new_tokens=1000,
             new_token_ids=None,
+            dont_mask_question_in_labels=False,
             **kwargs
     ):
         Dataset.__init__(self)
@@ -63,6 +64,8 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
         self.max_size = max_size
         self.chunk_size = chunk_size
         self.num_new_tokens = num_new_tokens
+
+        self.dont_mask_question_in_labels = dont_mask_question_in_labels
 
         self._init_pad_attributes(**kwargs)
 

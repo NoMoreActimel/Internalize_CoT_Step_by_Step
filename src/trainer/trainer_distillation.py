@@ -166,35 +166,37 @@ class DistillationTrainer(SimpleTrainer):
             KL divergence loss between teacher and student distributions
         """
         # Only compute loss where teacher_logits is not all padding (e.g., -100) along vocab dimension
-        mask = (labels != -100) & ~(teacher_logits != -100.0).all(dim=-1)
+        mask = (labels != -100) & ((teacher_logits != -100.0).any(dim=-1))
         
         if not mask.any():
             return torch.tensor(0.0, device=student_logits.device, requires_grad=True)
         
-        # Apply temperature scaling
-        student_logits_scaled = student_logits / self.temperature
-        teacher_logits_scaled = teacher_logits / self.temperature
-        
         # Compute softmax probabilities
-        student_probs = F.log_softmax(student_logits_scaled, dim=-1)
-        teacher_probs = F.softmax(teacher_logits_scaled, dim=-1)
+        student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
+        teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
         
-        # Compute KL divergence only on non-masked positions
-        # KL(P||Q) = sum(P * log(P/Q)) = sum(P * (log(P) - log(Q)))
-        kl_loss = F.kl_div(
-            student_probs.view(-1, student_probs.size(-1)),
-            teacher_probs.view(-1, teacher_probs.size(-1)),
-            reduction='none'
-        ).sum(dim=-1)
+        V = student_log_probs.size(-1)
+        idx = mask.reshape(-1)                                         # [B*S]
+        student_log_probs = student_log_probs.reshape(-1, V)[idx]                   # [N, V]
+        teacher_probs  = teacher_probs.reshape(-1, V)[idx]                       # [N, V]
+
+        # KL(teacher || student). F.kl_div expects log-probs for input, probs for target.
+        # 'batchmean' = sum(KL) / batch_size; here batch_size == N masked tokens.
+        kl_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean')
+
+        # # Compute KL divergence only on non-masked positions
+        # # KL(P||Q) = sum(P * log(P/Q)) = sum(P * (log(P) - log(Q)))
+        # kl_loss = F.kl_div(
+        #     student_probs.view(-1, student_probs.size(-1)),
+        #     teacher_probs.view(-1, teacher_probs.size(-1)),
+        #     reduction='none'
+        # ).sum(dim=-1)
         
-        # Apply mask and take mean
-        kl_loss = kl_loss.view(mask.shape)
-        kl_loss = (kl_loss * mask.float()).sum() / mask.float().sum()
+        # # Apply mask and take mean
+        # kl_loss = kl_loss.view(mask.shape)
+        # kl_loss = (kl_loss * mask.float()).sum() / mask.float().sum()
         
-        # Scale by temperature squared (standard in distillation)
-        kl_loss = kl_loss * (self.temperature ** 2)
-        
-        return kl_loss
+        return kl_loss * (self.temperature ** 2)
     
     def process_input_truncation(self, batch):
         """
