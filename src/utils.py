@@ -80,6 +80,24 @@ def extract_cot(text):
         return cot
 
 
+def expand_gpt2_positions(model, args):
+    old_length = model.base_model.transformer.wpe.weight.shape[0]
+    if args.truncation > old_length and args.from_pretrained is None:
+        print ('EXPANDING POSITIONS')
+        new_wpe = torch.nn.Embedding(args.truncation, model.base_model.transformer.wpe.weight.shape[-1])
+        new_wpe.weight.data[:old_length] = model.base_model.transformer.wpe.weight
+        new_wpe.weight.data[old_length:] = model.base_model.transformer.wpe.weight[-1].view(1, -1).expand(args.truncation-old_length, -1)
+        model.base_model.transformer.wpe = new_wpe
+
+        for block in model.base_model.transformer.h:
+            block.attn.register_buffer(
+                "bias",
+                torch.tril(torch.ones((args.truncation, args.truncation), dtype=torch.bool)).view(
+                    1, 1, args.truncation, args.truncation
+            ),
+            persistent=False,
+        )
+
 # Stop generation only after generating two EOSs, such as  z <eos> y <eos>
 class DoubleEOSStoppingCriteria(StoppingCriteria):
     def __init__(self, eos_token_id):

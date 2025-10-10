@@ -13,105 +13,17 @@ from src.configuration_model import ImplicitModelConfig
 from src.dataset.data import load_data
 from src.dataset.data_chunked import add_new_tokens
 from src.dataset.data_distillation import load_distillation_data
-from src.model import ImplicitModel
-from src.model_jepa import JEPAImplicitModel
 from src.subprosqa.patch_vocabulary import prepare_subprosqa_model_and_tokenizer
 from src.trainer.trainer_stepbystep import StepByStepTrainer
 from src.trainer.trainer_chunks import ChunkRemovalTrainer
 from src.trainer.trainer_masks import AuxiliarMasksRemovalTrainer
 from src.trainer.trainer_simple import SimpleTrainer
 from src.trainer.trainer_distillation import DistillationTrainer
+from src.create_model import create_model, create_jepa_model
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 logging.disable(logging.WARNING)
-
-
-def expand_gpt2_positions(model, args):
-    old_length = model.base_model.transformer.wpe.weight.shape[0]
-    if args.truncation > old_length and args.from_pretrained is None:
-        print ('EXPANDING POSITIONS')
-        new_wpe = torch.nn.Embedding(args.truncation, model.base_model.transformer.wpe.weight.shape[-1])
-        new_wpe.weight.data[:old_length] = model.base_model.transformer.wpe.weight
-        new_wpe.weight.data[old_length:] = model.base_model.transformer.wpe.weight[-1].view(1, -1).expand(args.truncation-old_length, -1)
-        model.base_model.transformer.wpe = new_wpe
-
-        for block in model.base_model.transformer.h:
-            block.attn.register_buffer(
-                "bias",
-                torch.tril(torch.ones((args.truncation, args.truncation), dtype=torch.bool)).view(
-                    1, 1, args.truncation, args.truncation
-            ),
-            persistent=False,
-        )
-
-def create_model(args, device):
-    if args.from_pretrained is None:
-        config = ImplicitModelConfig(base_model=args.model, n_head=args.n_head)
-        model = ImplicitModel(
-            config,
-            reinitialize_weights=args.train_from_scratch,
-            use_flash_attention=args.flash_attention_2,
-            use_peft=args.use_peft
-        ).to(device)
-    else:
-        print (f'Loading from {args.from_pretrained}')
-        model = ImplicitModel.from_pretrained(
-            args.from_pretrained,
-            use_flash_attention=args.flash_attention_2,
-            use_peft=args.use_peft
-        ).to(device)
-        config = model.config
-
-    if 'gpt2' in args.model:
-        expand_gpt2_positions(model, args)
-    
-    model = model.to(device)
-    tokenizer = model.tokenizer
-
-    if args.reinitialize_weights:
-        print ('reinitializing weights')
-        model.model.apply(model.model._init_weights)
-
-    if args.keep_position:
-        assert 'gpt2' in args.model # only implemented for gpt2 generate TODO: the code for this is not checked in yet
-    
-    return config, model, tokenizer
-
-def create_jepa_model(config, ref_model, args, device):
-    if args.from_pretrained is None:
-        model = JEPAImplicitModel(
-            config=config,
-            ref_model=ref_model,
-            alpha_logits_loss=args.alpha_logits_loss,
-            ref_model_update_decay=args.ref_model_update_decay,
-            logits_loss_on_full_cot=args.logits_loss_on_full_cot,
-            reinitialize_weights=args.train_from_scratch,
-            use_flash_attention=args.flash_attention_2,
-            use_peft=args.use_peft
-        ).to(device)
-    else:
-        print (f'Loading from {args.from_pretrained}')
-        model = JEPAImplicitModel(
-            config=config,
-            ref_model=ref_model,
-            alpha_logits_loss=args.alpha_logits_loss,
-            ref_model_update_decay=args.ref_model_update_decay,
-            logits_loss_on_full_cot=args.logits_loss_on_full_cot,
-            reinitialize_weights=False,
-            use_flash_attention=args.flash_attention_2,
-            use_peft=args.use_peft
-        ).to(device)
-        state_dict = torch.load(os.path.join(args.from_pretrained, 'state_dict.bin'))
-        model.load_state_dict(state_dict, strict=True)
-
-    if 'gpt2' in args.model:
-        expand_gpt2_positions(model, args)
-    
-    if args.keep_position:
-        assert 'gpt2' in args.model # only implemented for gpt2 generate TODO: the code for this is not checked in yet
-    
-    return config, model, model.tokenizer
 
 
 def add_jump_tokens(model, tokenizer, num_jump_tokens):

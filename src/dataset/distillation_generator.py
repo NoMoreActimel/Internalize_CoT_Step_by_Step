@@ -17,7 +17,8 @@ from src.model import ImplicitModel
 from src.model_jepa import JEPAImplicitModel
 from src.configuration_model import ImplicitModelConfig
 from src.utils import get_sep_position, extract_answer, extract_cot
-from src.train import create_model, expand_gpt2_positions
+from src.utils import expand_gpt2_positions
+from src.create_model import create_model
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
