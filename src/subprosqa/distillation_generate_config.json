@@ -1,0 +1,13 @@
+{
+    "mode": "train",
+    "model": "gpt2",
+    "train_path": "/scratch/ss19021/Internalize_CoT_Step_by_Step/data/9_by_9_mult/train.txt",
+    "val_path": "/scratch/ss19021/Internalize_CoT_Step_by_Step/data/9_by_9_mult/valid.txt",
+    "test_path": "/scratch/ss19021/Internalize_CoT_Step_by_Step/data/9_by_9_mult/test_bigbench.txt",
+    "batch_size": 8,
+    "max_cot_length": 64,
+    "chunk_size": 8,
+    "masking_type": "contiguous",
+    "from_pretrained_checkpoint": "/scratch/ss19021/Internalize_CoT_Step_by_Step/train_models/9_by_9_mult/gpt2_pretrained/contiguous_remove_from_scratch_3_062025/checkpoint-epoch22.pth",
+    "output_dir": "/scratch/ss19021/Internalize_CoT_Step_by_Step/data/9_by_9_distill/gpt2_gen_maxcot_64_from_contiguous_remove_3_100925/"
+}
