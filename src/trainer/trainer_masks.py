@@ -74,12 +74,15 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         # For generative eval in case of left_to_right_removal & joint_masked_distribution
         self.n_tokens_removed = None
 
-        # For random masking 
-        self.mask_id = torch.tensor(self.tokenizer.encode("Mask"))
-        if len(self.mask_id) != 1:
-            self.mask_id = torch.tensor(self.tokenizer.encode("M"))
-            if len(self.mask_id) != 1: # supposing the tokenizer prepends BOS
-                self.mask_id = self.mask_id[-1]
+        # For random masking
+        if self.tokenizer.mask_token_id:
+            self.mask_id = torch.tensor(self.tokenizer.mask_token_id)
+        else: 
+            self.mask_id = torch.tensor(self.tokenizer.encode("Mask"))
+            if len(self.mask_id) != 1:
+                self.mask_id = torch.tensor(self.tokenizer.encode("M"))
+                if len(self.mask_id) != 1: # supposing the tokenizer prepends BOS
+                    self.mask_id = self.mask_id[-1]
         self.mask_id = self.mask_id.to(self.device)
 
         # For eval with mask insertion

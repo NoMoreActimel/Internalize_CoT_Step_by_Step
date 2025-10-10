@@ -236,7 +236,7 @@ class CoTDatasetChunks(Dataset):
             ans = extract_answer(tgt)
             cot = extract_cot(tgt)
 
-            sent = f' {src} {self.eos_tok} {cot} {self.eos_tok} {ans} {self.eos_tok} '
+            sent = f'{src} {self.eos_tok} {cot} {self.eos_tok} {ans} {self.eos_tok}'
 
             sent_encoded = self.tokenizer(
                 [sent],
@@ -251,6 +251,18 @@ class CoTDatasetChunks(Dataset):
                 chunk_positions = get_chunks_positions(input_ids, self.tokenizer, self.chunk_size)
             if self.num_new_tokens:
                 chunk_new_token_ids = assign_new_tokens_to_chunks(chunk_positions, self.new_token_ids)
+    
+            first_sep_positions = get_sep_position(input_ids.unsqueeze(0), self.tokenizer.eos_token_id)
+            second_sep_positions = get_sep_position(input_ids.unsqueeze(0), self.tokenizer.eos_token_id, skip=1)
+            eos_positions = get_sep_position(input_ids.unsqueeze(0), self.tokenizer.eos_token_id, skip=2)
+            sep_idx = (input_ids == self.separator).int().argmax().item() + 1
+            #print("IN DATASET, CHECKING EOS TOKENS")
+            #print(f"text: {sent}")
+            #print(f"input_ids: {input_ids}")
+            #print(f"first_sep_positions: {first_sep_positions}")
+            #print(f"second_sep_positions: {second_sep_positions}")
+            #print(f"eos_positions: {eos_positions}")
+            #print(f"sep_idx: {sep_idx}")
 
             examples_all.append({
                 "input_ids": input_ids,

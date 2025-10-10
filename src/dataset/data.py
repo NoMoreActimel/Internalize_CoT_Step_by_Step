@@ -53,7 +53,10 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
         and (getattr(args, 'huggingface_dataset', None) \
         or getattr(args, 'json_dataset', None))
 
-    if getattr(args, 'random_cot', None):
+    if getattr(args, 'train_type', None) == 'full-cot':
+        DatasetClass = CoTDatasetChunks
+        CollateClass = CoTDataCollatorChunks
+    elif getattr(args, 'random_cot', None):
         DatasetClass = CoTDatasetRandomCot
         CollateClass = CoTDataCollatorRandomCot
     elif getattr(args, 'removal_type', None) == 'step-by-step' and not ours_sbs_flag:
@@ -67,7 +70,7 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
             args.removal_type must be either "step-by-step", "random-chunks", "random-masks",
             found {getattr(args, "removal_type", None)}
         ''')
-    
+    print("DatasetClass:", DatasetClass) 
     dataset = DatasetClass(tokenizer, **dataset_kwargs)
     collate = CollateClass(tokenizer)
     return dataset, collate
