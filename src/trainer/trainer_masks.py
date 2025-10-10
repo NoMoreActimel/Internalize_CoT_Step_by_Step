@@ -75,7 +75,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.n_tokens_removed = None
 
         # For random masking
-        if self.tokenizer.mask_token_id:
+        if self.tokenizer.mask_token_id is not None:
             self.mask_id = torch.tensor(self.tokenizer.mask_token_id)
         else: 
             self.mask_id = torch.tensor(self.tokenizer.encode("Mask"))

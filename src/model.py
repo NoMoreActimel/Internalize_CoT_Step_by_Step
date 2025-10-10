@@ -35,7 +35,6 @@ class ImplicitModel(nn.Module):
         self.use_peft = use_peft
         if self.use_peft:
             self.become_peft_model()
-    
         self.change_tokenizer(AutoTokenizer.from_pretrained(config.tokenizer_name))
 
         # Needed for evaluation with random inserts:
