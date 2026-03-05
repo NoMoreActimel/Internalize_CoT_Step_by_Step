@@ -66,6 +66,7 @@ class DistillationDataset(Dataset):
                 raise ValueError(f"Split not provided and not found in {self.data_dir}")
         self.split = split
 
+        self.chunk_files = []
         if self.generate_in_process:
             generator_config_dict = json.load(open(self.generator_args_path, 'r'))
             self.generator_args = Args(generator_config_dict)

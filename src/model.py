@@ -132,10 +132,10 @@ class ImplicitModel(nn.Module):
             max_cot_tokens=None,
             return_logits=False
     ):
-        print("First gen_sep_positions call, skip:", 1 if use_inputs_cot else 0)
-        print("First gen_sep_positions call, input_ids:", input_ids)
+        # print("First gen_sep_positions call, skip:", 1 if use_inputs_cot else 0)
+        # print("First gen_sep_positions call, input_ids:", input_ids)
         sep_positions = get_sep_position(input_ids, self.tokenizer.eos_token_id, skip=1 if use_inputs_cot else 0)
-        print("First gen_sep_positions called, sep_positions:", sep_positions)
+        # print("First gen_sep_positions called, sep_positions:", sep_positions)s
         batch_size = input_ids.shape[0]
 
         # Since there's one eos after CoT and another after final answer, we need to wait for two eos
@@ -224,11 +224,11 @@ class ImplicitModel(nn.Module):
         pred = logits.argmax(dim=-1)
         pred_cot = pred[:, cot_start_position - 1 : cot_end_position - 1]
 
-        print("[PARALLEL INFERENCE DEBUG]")
-        print("\ninput_ids:", input_ids.shape, "\n", input_ids[0])
+        # print("[PARALLEL INFERENCE DEBUG]")
+        # print("\ninput_ids:", input_ids.shape, "\n", input_ids[0])
         input_ids = input_ids.clone()
         input_ids[:, cot_start_position : cot_end_position] = pred_cot
-        print("\nwith parallel pred:", input_ids.shape, "\n", input_ids[0], "\n")
+        # print("\nwith parallel pred:", input_ids.shape, "\n", input_ids[0], "\n")
         return input_ids
 
     def _generate(
@@ -384,10 +384,14 @@ class ImplicitModel(nn.Module):
             #generate_kwargs["stopping_criteria"] = None
 
         generate_kwargs["max_new_tokens"] = second_generation
+
+        print("[DEBUG] SECOND GENERATION KWARGS:", generate_kwargs)
         
         t0 = time.time()
         beam_output = self.base_model.generate(**generate_kwargs)
         t1 = time.time()
+        
+        print("[DEBUG] SECOND GENERATION NUMBER OF TOKENS:", beam_output.shape[-1] - generate_kwargs["input_ids"].shape[-1])
 
         if return_logits:
             all_logits.append(torch.stack(beam_output.scores, dim=1))
@@ -398,7 +402,9 @@ class ImplicitModel(nn.Module):
         total_generated = beam_output.shape[-1] - input_ids.shape[-1]
         print(f"[PROFILE] total forward calls: {total_generated}  total forward time: {total_forward_time:.3f}s")
         #print(f"[PROFILE] num EOS in outputs: {(beam_output == self.tokenizer.eos_token_id).sum(dim=-1)}")
-        print(f"[PROFILE] EOS in outputs: {(beam_output == self.tokenizer.eos_token_id).sum(dim=-1)}")
+        # print(f"[PROFILE] EOS in inputs: {(input_ids == self.tokenizer.eos_token_id).sum(dim=-1)}")
+        # print(f"[PROFILE] EOS in outputs: {(beam_output == self.tokenizer.eos_token_id).sum(dim=-1)}")
+        # print(f"[PROFILE] Generate kwargs: {generate_kwargs}")
         
         if return_logits:
             return beam_output, all_logits
@@ -437,7 +443,7 @@ class ImplicitModel(nn.Module):
         split_ids = split_ids.unsqueeze(0).expand(input_ids.shape[0], *split_ids.shape)
         split_flag = False
 
-        print("SPLIT_IDS:", split_ids)
+        # print("SPLIT_IDS:", split_ids)
 
         # To disable masking after split / number of tokens limit
         masking_flag = True

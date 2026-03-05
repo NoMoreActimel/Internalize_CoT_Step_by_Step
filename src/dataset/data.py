@@ -76,19 +76,26 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
     return dataset, collate
 
 
+
 def load_data(args, tokenizer, new_token_ids=None):
     train_shuffle = not getattr(args, "disable_train_shuffle", False)
-    train_dataset, collate_fn = get_data_classes(args, tokenizer, new_token_ids, split=args.train_split)
+
+    train_split = getattr(args, "train_split", "train")
+    val_split = getattr(args, "val_split", "val")
+    test_split = getattr(args, "test_split", None)
+
+    train_dataset, collate_fn = get_data_classes(args, tokenizer, new_token_ids, split=train_split)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=train_shuffle)
 
-    val_dataset, collate_fn = get_data_classes(args, tokenizer, new_token_ids, split=args.val_split)
+    val_dataset, collate_fn = get_data_classes(args, tokenizer, new_token_ids, split=val_split)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=False)
 
-    if args.test_path or (args.huggingface_dataset and args.test_split and args.test_split != args.val_split):
-        if args.test_path and args.test_split is None:
-            args.test_split = "test"
-        test_dataset, collate_fn = get_data_classes(args, tokenizer, new_token_ids, split=args.test_split)
+    if args.test_path or (args.huggingface_dataset and test_split and test_split != val_split):
+        if args.test_path and test_split is None:
+            test_split = "test"
+        test_dataset, collate_fn = get_data_classes(args, tokenizer, new_token_ids, split=test_split)
         test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=collate_fn, shuffle=False)
         return train_dataloader, val_dataloader, test_dataloader
     
     return train_dataloader, val_dataloader, None
+

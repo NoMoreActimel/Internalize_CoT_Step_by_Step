@@ -282,7 +282,7 @@ class DistillationGenerator:
         self.dataloaders = {"train": self.train_dataloader, "val": self.val_dataloader, "test": self.test_dataloader}
 
     def create_dataloaders(self):    
-        if self.args.removal_type == "random-chunks":
+        if getattr(self.args, "removal_type", None) == "random-chunks":
             self.model, self.tokenizer, new_token_ids = add_new_tokens(self.model, self.tokenizer, self.args.num_new_tokens + 1)
             start_id, new_token_ids = new_token_ids[0], new_token_ids[1:]
         else:
@@ -291,7 +291,7 @@ class DistillationGenerator:
         self.args.train_type = 'full-cot' # for correct original dataset class - CoTDatasetChunks
         return load_data(self.args, self.tokenizer, new_token_ids)
 
-    def apply_cot_masking(input_ids, tokenizer, max_cot_length, device, masking_type="contiguous"):
+    def apply_cot_masking(self, input_ids, tokenizer, max_cot_length, device, masking_type="contiguous", return_without_cot=False):
         """
         Apply CoT masking based on max_cot_length.
         
@@ -332,12 +332,18 @@ class DistillationGenerator:
                     prefix, _ = _get_prefix_random_masking(tokenizer, None, None, removal_p, device)
             
             cot_start = first_sep_positions[batch_idx] + 1
-            modified_input = torch.cat([
-                input_ids[batch_idx, :first_sep_positions[batch_idx]],
-                prefix,
-                input_ids[batch_idx, cot_start:]
-            ])
-            
+            if return_without_cot:
+                modified_input = torch.cat([
+                    input_ids[batch_idx, :first_sep_positions[batch_idx]],
+                    prefix
+                ])
+            else:
+                modified_input = torch.cat([
+                    input_ids[batch_idx, :first_sep_positions[batch_idx]],
+                    prefix,
+                    input_ids[batch_idx, cot_start:]
+                ])
+
             modified_inputs.append(modified_input)
             prefixes.append(prefix)
         
@@ -396,13 +402,19 @@ class DistillationGenerator:
             input_ids_for_generation = input_ids_full[:, :first_sep_positions.max()+1]
             
             if self.args.max_cot_length > 0:
+                input_ids_masked, prefixes = self.apply_cot_masking(
+                    input_ids_full, self.tokenizer, self.args.max_cot_length, self.device, 
+                    masking_type=self.args.masking_type,
+                    return_without_cot=False
+                )
                 input_ids_for_generation, prefixes = self.apply_cot_masking(
                     input_ids_full, self.tokenizer, self.args.max_cot_length, self.device, 
-                    masking_type=self.args.masking_type
+                    masking_type=self.args.masking_type,
+                    return_without_cot=True
                 )
                 # Update input_ids to only include up to first EOS + prefix
-                first_sep_positions_new = get_sep_position(input_ids_for_generation, self.tokenizer.eos_token_id)
-                input_ids_for_generation = input_ids_for_generation[:, :first_sep_positions_new.max()+1]
+                # first_sep_positions_new = get_sep_position(input_ids_masked, self.tokenizer.eos_token_id)
+                # input_ids_for_generation = input_ids_masked[:, :first_sep_positions_new.max()+1]
             
             generation_outputs = self.model.generate(
                 input_ids=input_ids_for_generation,
@@ -410,6 +422,7 @@ class DistillationGenerator:
                 num_beams=1,
                 stop_on_two_eos=True,
                 max_cot_tokens=self.args.max_cot_length,
+                inputs_with_cot=False,
                 return_logits=True
             )
 
@@ -429,11 +442,14 @@ class DistillationGenerator:
                 sample_count += 1
 
                 if i < 3:
-                    gen_inputs = self.tokenizer.decode(input_ids_for_generation[i], skip_special_tokens=True)
-                    orig_text = self.tokenizer.decode(input_ids_full[i], skip_special_tokens=True)
-                    gen_text = self.tokenizer.decode(sequence_samples[i], skip_special_tokens=True)
+                    gen_inputs = self.tokenizer.decode(input_ids_for_generation[i], skip_special_tokens=False)
+                    orig_text = self.tokenizer.decode(input_ids_full[i], skip_special_tokens=False)
+                    gen_text = self.tokenizer.decode(sequence_samples[i], skip_special_tokens=False)
                     print(f"Input: {gen_inputs}")
                     print(f"Target: {orig_text}")
+                    if self.args.max_cot_length > 0:
+                        masked_text = self.tokenizer.decode(input_ids_masked[i], skip_special_tokens=False)
+                        print(f"Masked: {masked_text}")
                     print(f"Predicted: {gen_text}")
                 print("-" * 50)
 
