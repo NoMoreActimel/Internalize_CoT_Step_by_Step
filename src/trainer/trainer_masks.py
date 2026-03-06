@@ -8,6 +8,17 @@ import tqdm
 from src.trainer.trainer_base import BaseTrainer
 from src.utils import get_sep_position, batch_ids
 
+def get_mask_id(tokenizer, device):
+    if tokenizer.mask_token_id is not None:
+        mask_id = torch.tensor(tokenizer.mask_token_id)
+    else: 
+        mask_id = torch.tensor(tokenizer.encode("Mask"))
+        if len(mask_id) != 1:
+            mask_id = torch.tensor(tokenizer.encode("M"))
+            if len(mask_id) != 1: # supposing the tokenizer prepends BOS
+                mask_id = mask_id[-1]
+    mask_id = mask_id.to(device)
+    return mask_id
 
 class AuxiliarMasksRemovalTrainer(BaseTrainer):
     def __init__(self, model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args):
@@ -75,15 +86,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         self.n_tokens_removed = None
 
         # For random masking
-        if self.tokenizer.mask_token_id is not None:
-            self.mask_id = torch.tensor(self.tokenizer.mask_token_id)
-        else: 
-            self.mask_id = torch.tensor(self.tokenizer.encode("Mask"))
-            if len(self.mask_id) != 1:
-                self.mask_id = torch.tensor(self.tokenizer.encode("M"))
-                if len(self.mask_id) != 1: # supposing the tokenizer prepends BOS
-                    self.mask_id = self.mask_id[-1]
-        self.mask_id = self.mask_id.to(self.device)
+        self.mask_id = get_mask_id(self.tokenizer, self.device)
 
         # For eval with mask insertion
         self.insert_const_ids_func = None

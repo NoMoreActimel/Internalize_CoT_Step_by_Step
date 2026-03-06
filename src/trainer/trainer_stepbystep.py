@@ -3,6 +3,7 @@ import os
 import torch
 import tqdm
 
+from src.trainer.trainer_masks import get_mask_id
 from src.trainer.trainer_base import BaseTrainer
 from src.utils import get_sep_position, batch_ids
 
@@ -48,6 +49,7 @@ class StepByStepTrainer(BaseTrainer):
         self.prompt_in_percentage = args.prompt_in_percentage
         self.replace_mask = args.replace_mask
         self.replace_mask_in_labels = args.replace_mask_in_labels
+        self.mask_id = get_mask_id(self.tokenizer, self.device)
 
         self.setup_metrics(additional_metrics=["scheduled_to_remove"])
 
