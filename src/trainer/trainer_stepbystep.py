@@ -182,14 +182,21 @@ class StepByStepTrainer(BaseTrainer):
 
 
     def _get_prefix_stepbystep(self, to_remove, cot_length):
+        # Ensure Python scalars for formatting/division
+        if torch.is_tensor(to_remove):
+            to_remove = to_remove.item()
+        if torch.is_tensor(cot_length):
+            cot_length = cot_length.item()
+        to_remove = int(to_remove)
+        cot_length = int(cot_length)
         prefix = ""
 
         if self.prompt_in_percentage:
-            prefix_str = f" ## masked {round(to_remove / cot_length) * 100} % of CoT ## "
+            pct = (round(to_remove / cot_length) * 100) if cot_length > 0 else 0
+            prefix_str = f" ## masked {pct} % of CoT ## "
         else:
-            if self.args.replace_mask:
-                prefix_str = f" ## masked {to_remove} ## "
-        
+            prefix_str = f" ## masked {to_remove} ## "
+
         prefix = self.tokenizer(
             prefix_str,
             add_special_tokens=True,
