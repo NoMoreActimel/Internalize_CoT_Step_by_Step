@@ -44,6 +44,11 @@ class StepByStepTrainer(BaseTrainer):
             "stop_on_two_eos": True,
         }
 
+        self.use_prefix = args.use_prefix_stepbystep
+        self.prompt_in_percentage = args.prompt_in_percentage
+        self.replace_mask = args.replace_mask
+        self.replace_mask_in_labels = args.replace_mask_in_labels
+
         self.setup_metrics(additional_metrics=["scheduled_to_remove"])
 
     def _train_process(self):
@@ -174,6 +179,49 @@ class StepByStepTrainer(BaseTrainer):
             self.save_epoch(epoch, save_best=save_best)
 
 
+    def _get_prefix_stepbystep(self, to_remove, cot_length):
+        prefix = ""
+
+        if self.prompt_in_percentage:
+            prefix_str = f" ## masked {round(to_remove / cot_length) * 100} % of CoT ## "
+        else:
+            if self.args.replace_mask:
+                prefix_str = f" ## masked {to_remove} ## "
+        
+        prefix = self.tokenizer(
+            prefix_str,
+            add_special_tokens=True,
+            truncation=True,
+            return_tensors="pt"
+        )["input_ids"].to(self.device).squeeze(0)
+
+        eos = torch.full((1,), self.tokenizer.eos_token_id, dtype=torch.long).to(self.device)
+        prefix = torch.cat([prefix, eos])
+        ignored_prefix_labels = torch.full_like(prefix, -100)
+        return prefix, ignored_prefix_labels
+
+
+    def _concat_ids(self, ids, prefix_ids, cot_start, start, end, eos, dim, labels_flag=False):
+        if self.use_prefix:
+            ids_to_cat = [ids[..., :cot_start - 1], prefix_ids] # move EOS_TOKEN_ID in prefix
+        else:
+            ids_to_cat = [ids[..., :cot_start]]
+        if cot_start < start:
+            ids_to_cat.append(ids[..., cot_start:start])
+
+        if self.args.replace_mask:
+            if labels_flag and (self.replace_mask_in_labels is False):
+                # Labels: recover all COT tokens in labels in case of mask replacement
+                ids_to_cat.append(ids[..., start:end])
+            else:
+                mask_tensor = self._fill_tensor_like_with_last_dim(ids, self.mask_id.item(), (end - start).item())
+                ids_to_cat.append(mask_tensor)
+        
+        ids_to_cat.append(ids[..., end:eos + 1])
+
+        ids_new = torch.cat(ids_to_cat, dim=dim)
+        return ids_new
+
     def process_input_truncation(self, batch, epoch, disable_random_removal_offset=False):
         input_ids = batch['input_ids']
         labels = batch['labels']
@@ -225,14 +273,34 @@ class StepByStepTrainer(BaseTrainer):
             if self.args.keep_position:
                 position_ids[batch_id, removal_from_position-1:] += removal_to_position - removal_from_position
 
-            input_ids_tmp.append(torch.cat((
+            cot_start = first_sep_positions[batch_id] + 1
+            start = cot_start
+            end = start + removal_to_position - removal_from_position
+            eos = eos_positions[batch_id]
+
+            prefix, ignored_prefix_labels = None, None
+            if self.use_prefix:
+                prefix, ignored_prefix_labels = self._get_prefix_stepbystep(to_remove, removal_to_position - removal_from_position)
+
+            input_ids_new = self._concat_ids(input_ids[batch_id], prefix, cot_start, start, end, eos, dim=0)
+            labels_new = self._concat_ids(labels[batch_id], ignored_prefix_labels, cot_start, start, end, eos, dim=0, labels_flag=True)
+
+            input_ids_new_legacy = torch.cat((
                 input_ids[batch_id, :removal_from_position],
                 input_ids[batch_id, removal_to_position:eos_position+1]
-            ), dim=-1))
-            labels_tmp.append(torch.cat((
+            ), dim=-1)
+            labels_new_legacy = torch.cat((
                 labels[batch_id, :removal_from_position],
                 labels[batch_id, removal_to_position:eos_position+1]
-            ), dim=-1))
+            ), dim=-1)
+
+            if not self.use_prefix and not self.replace_mask:
+                assert torch.all(input_ids_new == input_ids_new_legacy)
+            if not self.use_prefix and not self.replace_mask_in_labels:
+                assert torch.all(labels_new == labels_new_legacy)
+
+            input_ids_tmp.append(input_ids_new)
+            labels_tmp.append(labels_new)
         
         input_ids = batch_ids(input_ids_tmp, self.tokenizer.eos_token_id, self.device, input_ids.dtype)
         labels = batch_ids(labels_tmp, -100, self.device, input_ids.dtype)

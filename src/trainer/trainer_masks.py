@@ -434,13 +434,6 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
         ignored_prefix_labels = torch.full_like(prefix, -100)
         return prefix, ignored_prefix_labels
 
-    @staticmethod
-    def _fill_tensor_like_with_last_dim(ids, fill_value, last_dim):
-        shape = list(ids.shape)
-        shape[-1] = last_dim
-        fill_tensor = torch.full(size=shape, fill_value=fill_value, dtype=torch.long, device=ids.device)
-        return fill_tensor
-
     def _concat_ids(self, ids, prefix_ids, cot_start, start, end, eos, dim, labels_flag=False):
         ids_to_cat = [ids[..., :cot_start - 1], prefix_ids] # move EOS_TOKEN_ID in prefix
         if cot_start < start:

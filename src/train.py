@@ -254,6 +254,7 @@ def main():
     parser.add_argument('--truncation', type=int, default=-1)
     parser.add_argument('--max_len_train', type=int, default=-1)
     parser.add_argument('--max_new_tokens', type=int, default=800)
+    parser.add_argument('--use_prefix_stepbystep', action='store_true', default=False)
 
     parser.add_argument('--max_size', type=int, default=-1)
     parser.add_argument('--train_max_size', type=int, default=None)

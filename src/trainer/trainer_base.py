@@ -342,3 +342,10 @@ class BaseTrainer:
             return
         for metric_name in metric_tracker.keys():
             self.writer.add_scalar(f"{metric_name}", metric_tracker.avg(metric_name))
+
+    @staticmethod
+    def _fill_tensor_like_with_last_dim(ids, fill_value, last_dim):
+        shape = list(ids.shape)
+        shape[-1] = last_dim
+        fill_tensor = torch.full(size=shape, fill_value=fill_value, dtype=torch.long, device=ids.device)
+        return fill_tensor
