@@ -229,7 +229,13 @@ class StepByStepTrainer(BaseTrainer):
         labels = batch['labels']
 
         if not (self.scheduled_to_remove > 0 or self.args.removal_smoothing_lambda != float('inf')):
-            return input_ids, labels, None, False # all_cot_removed_in_batch
+            position_ids = None
+            if self.args.keep_position:
+                batch_size = input_ids.shape[0]
+                position_ids = torch.arange(
+                    0, input_ids.shape[-1], dtype=torch.long, device=self.device
+                ).unsqueeze(0).repeat(batch_size, 1)
+            return {"input_ids": input_ids, "labels": labels, "position_ids": position_ids}, False
         
         batch_size = input_ids.shape[0]
 
@@ -282,7 +288,10 @@ class StepByStepTrainer(BaseTrainer):
 
             prefix, ignored_prefix_labels = None, None
             if self.use_prefix:
-                prefix, ignored_prefix_labels = self._get_prefix_stepbystep(to_remove, removal_to_position - removal_from_position)
+                prefix, ignored_prefix_labels = self._get_prefix_stepbystep(
+                    to_remove=to_remove[batch_id].item(),
+                    cot_length=removal_to_position - removal_from_position
+                )
 
             input_ids_new = self._concat_ids(input_ids[batch_id], prefix, cot_start, start, end, eos, dim=0)
             labels_new = self._concat_ids(labels[batch_id], ignored_prefix_labels, cot_start, start, end, eos, dim=0, labels_flag=True)
