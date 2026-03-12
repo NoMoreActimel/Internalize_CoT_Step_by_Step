@@ -2,6 +2,7 @@ import math
 import os
 import torch
 import tqdm
+import re
 
 from src.trainer.trainer_masks import get_mask_id
 from src.trainer.trainer_base import BaseTrainer
@@ -42,6 +43,7 @@ class StepByStepTrainer(BaseTrainer):
         }
         self.val_generation_kwargs = {
             "max_new_tokens": self.args.max_new_tokens,
+            "insert_const_ids_in_cot": args.replace_mask,
             "stop_on_two_eos": True,
         }
 
@@ -154,7 +156,8 @@ class StepByStepTrainer(BaseTrainer):
                 "val",
                 self.val_truncation_kwargs,
                 self.val_generation_kwargs,
-                perform_generative_eval=True
+                perform_generative_eval=True,
+                generative_eval_hooks=[self.generation_eval_insert_ids_hook]
             )
             save_best = self.check_best(accuracy, token_accuracy, ppl)
             
@@ -166,11 +169,10 @@ class StepByStepTrainer(BaseTrainer):
                     "test",
                     self.val_truncation_kwargs,
                     self.val_generation_kwargs,
-                    perform_generative_eval=True
+                    perform_generative_eval=True,
+                    generative_eval_hooks=[self.generation_eval_insert_ids_hook]
                 )
 
-
-    
             # if accuracy > best_val_accuracy:
             #     print ('***best so far or removed more CoT tokens***')
             #     best_val_accuracy = accuracy
@@ -180,6 +182,35 @@ class StepByStepTrainer(BaseTrainer):
             #     self._save_checkpoint(epoch=self.epoch, save_best=True, only_best=True)
             self.save_epoch(epoch, save_best=save_best)
 
+
+    def generation_eval_insert_ids_hook(self, batch, truncation_kwargs, generation_kwargs):
+        if generation_kwargs.get("insert_const_ids_in_cot", False):
+            ids_to_insert, insert_position = self.get_stepbystep_mask_for_gen_eval(batch)
+            generation_kwargs["ids_to_insert"] = ids_to_insert
+            generation_kwargs["insert_position"] = insert_position
+        return generation_kwargs
+
+    def _extract_contiguous_mask_positions(self, input_ids):
+        sample = self.tokenizer.batch_decode(input_ids)[0]
+        m = re.search(r'##\s*(.*?)\s*##', sample)
+        removed_part = m.group(1).strip() if m else None
+        removed_part_split = removed_part.split(' ')
+        n_tokens_to_remove = int(removed_part_split[1])
+        insert_position = 0 if self.left_to_right_removal else int(removed_part_split[-1])
+        return insert_position, n_tokens_to_remove
+    
+    # instead of sampling mask, extract it from input_ids to match the added ## removed ## prefix
+    def get_stepbystep_mask_for_gen_eval(self, batch):
+        input_ids = batch["input_ids"]
+        if input_ids.shape[0] != 1:
+            print("\nUsing get_contiguous_mask_for_gen_eval with input_ids.shape[0] > 1,")
+            print("ensure the same mask is applied in process_input_truncation for all samples!\n")
+        
+        insert_position, n_tokens_to_remove = self._extract_contiguous_mask_positions(input_ids)
+
+        mask_shape = (input_ids.shape[0], n_tokens_to_remove)
+        ids_to_insert = torch.full(mask_shape, self.mask_id.item(), dtype=torch.long, device=input_ids.device)
+        return ids_to_insert, insert_position
 
     def _get_prefix_stepbystep(self, to_remove, cot_length):
         # Ensure Python scalars for formatting/division
