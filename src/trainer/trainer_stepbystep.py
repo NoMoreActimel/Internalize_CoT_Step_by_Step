@@ -190,14 +190,13 @@ class StepByStepTrainer(BaseTrainer):
             generation_kwargs["insert_position"] = insert_position
         return generation_kwargs
 
-    def _extract_contiguous_mask_positions(self, input_ids):
+    def _extract_mask_positions_stepbystep(self, input_ids):
         sample = self.tokenizer.batch_decode(input_ids)[0]
         m = re.search(r'##\s*(.*?)\s*##', sample)
         removed_part = m.group(1).strip() if m else None
         removed_part_split = removed_part.split(' ')
         n_tokens_to_remove = int(removed_part_split[1])
-        insert_position = 0 if self.left_to_right_removal else int(removed_part_split[-1])
-        return insert_position, n_tokens_to_remove
+        return n_tokens_to_remove
     
     # instead of sampling mask, extract it from input_ids to match the added ## removed ## prefix
     def get_stepbystep_mask_for_gen_eval(self, batch):
@@ -206,7 +205,8 @@ class StepByStepTrainer(BaseTrainer):
             print("\nUsing get_contiguous_mask_for_gen_eval with input_ids.shape[0] > 1,")
             print("ensure the same mask is applied in process_input_truncation for all samples!\n")
         
-        insert_position, n_tokens_to_remove = self._extract_contiguous_mask_positions(input_ids)
+        insert_position = 0
+        n_tokens_to_remove = self._extract_mask_positions_stepbystep(input_ids)
 
         mask_shape = (input_ids.shape[0], n_tokens_to_remove)
         ids_to_insert = torch.full(mask_shape, self.mask_id.item(), dtype=torch.long, device=input_ids.device)
