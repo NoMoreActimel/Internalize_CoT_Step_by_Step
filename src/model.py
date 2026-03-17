@@ -690,7 +690,7 @@ class ImplicitModel(nn.Module):
 
     def insert_const_ids(self, output_ids, ids_to_insert, logits_processor, logits_list=None):
         if logits_processor is None:
-            eos_count_init = torch.zeros(output_ids.shape[:-1])
+            eos_count_init = torch.zeros(output_ids.shape[:-1], device=output_ids.device)
         else:
             eos_count_init = logits_processor[0].eos_count_init
         
