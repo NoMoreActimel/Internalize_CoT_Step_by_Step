@@ -357,6 +357,7 @@ class ImplicitModel(nn.Module):
 
         all_logits = [] if return_logits else None
         if insert_const_ids_in_cot and insert_position > 0:
+            # CoT generation, answer split
             beam_output = self.base_model.generate(**generate_kwargs)
             if return_logits:
                 all_logits.append(torch.stack(beam_output.scores, dim=1))
@@ -368,9 +369,9 @@ class ImplicitModel(nn.Module):
                 if return_logits:
                     return beam_output, all_logits
                 return beam_output
-
-            generate_kwargs["input_ids"] = self.insert_const_ids(beam_output, ids_to_insert, logits_processor, all_logits) # appends to all_logits
             
+            generate_kwargs["input_ids"] = self.insert_const_ids(beam_output, ids_to_insert, logits_processor, all_logits) # appends to all_logits
+
             if self._check_double_eos_in_output(generate_kwargs["input_ids"], input_ids):
                 print("[PROFILE] Second EOS reached after insertion, skipping second generation")
                 all_logits = torch.cat(all_logits, dim=1) if return_logits and all_logits else None
@@ -380,8 +381,9 @@ class ImplicitModel(nn.Module):
             generate_kwargs["logits_processor"], generate_kwargs["stopping_criteria"] = self.reinit_processor_criteria(
                 logits_processor, stopping_criteria, single=True
             )
-            #generate_kwargs["logits_processor"] = None
-            #generate_kwargs["stopping_criteria"] = None
+        elif insert_const_ids_in_cot and insert_position == 0:
+            # Masks insertion at the start
+            generate_kwargs["input_ids"] = self.insert_const_ids(input_ids, ids_to_insert, None, all_logits)
 
         generate_kwargs["max_new_tokens"] = second_generation
 
@@ -694,7 +696,7 @@ class ImplicitModel(nn.Module):
         
         eos_token_id = self.tokenizer.eos_token_id
         eos_count = (output_ids == eos_token_id).sum(dim=-1)
-        done_cot = (eos_count - eos_count_init) >= 1
+        done_cot = (eos_count - eos_count_init) >= 2
 
         ids_to_insert = ids_to_insert.detach().clone()
         if ids_to_insert.ndim == 1:

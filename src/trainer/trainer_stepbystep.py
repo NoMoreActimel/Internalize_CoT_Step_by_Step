@@ -151,6 +151,10 @@ class StepByStepTrainer(BaseTrainer):
             if self.accelerator.is_main_process and self.writer:
                 self.writer.set_step(step, mode="val")
             
+            self.val_generation_kwargs["use_inputs_cot"] = False
+            if self.args.replace_mask and all_cot_removed_in_batch:
+                self.val_generation_kwargs["use_inputs_cot"] = True
+
             accuracy, token_accuracy, ppl = self.evaluate(
                 self.val_dataloader,
                 "val",
