@@ -152,8 +152,10 @@ class StepByStepTrainer(BaseTrainer):
                 self.writer.set_step(step, mode="val")
             
             self.val_generation_kwargs["use_inputs_cot"] = False
+            self.val_generation_kwargs["insert_const_ids_in_cot"] = self.args.replace_mask
             if self.args.replace_mask and all_cot_removed_in_batch:
                 self.val_generation_kwargs["use_inputs_cot"] = True
+                self.val_generation_kwargs["insert_const_ids_in_cot"] = False
 
             accuracy, token_accuracy, ppl = self.evaluate(
                 self.val_dataloader,
