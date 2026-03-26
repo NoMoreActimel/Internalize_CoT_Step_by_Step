@@ -17,6 +17,7 @@ from src.subprosqa.patch_vocabulary import prepare_subprosqa_model_and_tokenizer
 from src.trainer.trainer_stepbystep import StepByStepTrainer
 from src.trainer.trainer_chunks import ChunkRemovalTrainer
 from src.trainer.trainer_masks import AuxiliarMasksRemovalTrainer
+from src.trainer.trainer_grpo import GRPOMasksTrainer
 from src.trainer.trainer_simple import SimpleTrainer
 from src.trainer.trainer_distillation import DistillationTrainer
 from src.create_model import create_model, create_jepa_model
@@ -123,7 +124,7 @@ def main():
 
     parser.add_argument('--removal_type', type=str, choices=['step-by-step', 'random-chunks', 'random-masks'], default='step-by-step')
 
-    parser.add_argument('--train_type', type=str, choices=['full-cot', 'cot-distill', 'jepa-cot-distill'], default='cot-distill', help="""
+    parser.add_argument('--train_type', type=str, choices=['full-cot', 'cot-distill', 'jepa-cot-distill', 'grpo'], default='cot-distill', help="""
                         Type of Training:
                         - 'full-cot': simply train on full Chains-of-Thought data
                         - 'cot-distill': for different types of Chains-of-Thought distillation, by removal_type (default)
@@ -286,6 +287,13 @@ def main():
     parser.add_argument('--keep_position', action='store_true', default=False)
     parser.add_argument('--reinitialize_weights', action='store_true', default=False)
 
+    # GRPO hyperparameters
+    parser.add_argument('--grpo_group_size', type=int, default=4, help='Number of completions per prompt in GRPO')
+    parser.add_argument('--grpo_clip_eps', type=float, default=0.2, help='PPO-style clipping epsilon')
+    parser.add_argument('--grpo_kl_coeff', type=float, default=0.01, help='KL divergence penalty coefficient')
+    parser.add_argument('--grpo_temperature', type=float, default=0.7, help='Sampling temperature for generation')
+    parser.add_argument('--grpo_max_new_tokens', type=int, default=None, help='Max new tokens for GRPO generation (defaults to max_new_tokens)')
+
     parser.add_argument('--wandb_project', type=str, default=None)
     parser.add_argument('--wandb_run_name', type=str, default=None)
 
@@ -366,6 +374,8 @@ def main():
         trainer = StepByStepTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
     elif args.removal_type == 'random-chunks':
         trainer = ChunkRemovalTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args, start_id)
+    elif args.train_type == 'grpo':
+        trainer = GRPOMasksTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
     elif args.removal_type == 'random-masks':
         trainer =  AuxiliarMasksRemovalTrainer(model, optimizer, tokenizer, device, train_dataloader, val_dataloader, test_dataloader, use_fused, args)
     else:
