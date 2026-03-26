@@ -243,11 +243,14 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 self.val_generation_kwargs["predict_cot_in_parallel"] = False
                 self.val_generation_kwargs["force_cot_answer_split"] = False
 
-            if not (self.left_to_right_removal or self.random_contiguous_removal) and self.args.replace_mask:
+            if self.args.replace_mask:
                 random_insertion_prob, insert_const_ids_in_cot = None, None
+
                 if val_removal_p != 0.0 and val_removal_p != 1.0:
-                    random_insertion_prob = val_removal_p
                     insert_const_ids_in_cot = True
+                    if not (self.left_to_right_removal or self.random_contiguous_removal):
+                        random_insertion_prob = val_removal_p
+                
                 self.val_generation_kwargs["random_insertion_prob"] = random_insertion_prob
                 self.val_generation_kwargs["insert_const_ids_in_cot"] = insert_const_ids_in_cot
 
