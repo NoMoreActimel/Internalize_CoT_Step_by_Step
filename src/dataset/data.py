@@ -54,7 +54,7 @@ def get_data_classes(args, tokenizer, new_token_ids=None, split="train"):
         or getattr(args, 'json_dataset', None))
 
     if getattr(args, 'train_type', None) == 'full-cot':
-        DatasetClass = CoTDatasetChunks
+        DatasetClass = CoTChunksHFDataset if getattr(args, 'huggingface_dataset', None) else CoTDatasetChunks
         CollateClass = CoTDataCollatorChunks
     elif getattr(args, 'random_cot', None):
         DatasetClass = CoTDatasetRandomCot
