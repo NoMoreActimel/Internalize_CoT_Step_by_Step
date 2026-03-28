@@ -219,13 +219,15 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
 
             loss_log[-1] = sum(loss_log[-1]) / len(loss_log[-1])
 
-            save_best = self.evaluate(step, base_name="val")
+            eval_period = getattr(self.args, 'eval_period', 1)
+            perform_gen_eval = (epoch % eval_period == 0) or (epoch == self.start_epoch + self.args.epochs - 1)
+            save_best = self.evaluate(step, base_name="val", perform_generative_eval=perform_gen_eval)
             if self.args.test_path or (self.args.test_split and self.args.test_split != self.args.val_split):
-                self.evaluate(step, base_name="test")
+                self.evaluate(step, base_name="test", perform_generative_eval=perform_gen_eval)
 
             self.save_epoch(epoch, save_best=save_best)
     
-    def evaluate(self, step, base_name="val"):
+    def evaluate(self, step, base_name="val", perform_generative_eval=True):
         save_best = False
         for val_removal_p in self.val_removal_ps:
             print(f"\nVALIDATION ON VAL_REMOVAL_P = {val_removal_p}\n")
@@ -260,7 +262,7 @@ class AuxiliarMasksRemovalTrainer(BaseTrainer):
                 name=name,
                 truncation_kwargs={"val_removal_p": val_removal_p},
                 generation_kwargs=self.val_generation_kwargs,
-                perform_generative_eval=True,
+                perform_generative_eval=perform_generative_eval,
                 generative_eval_hooks=self.generative_eval_hooks if val_removal_p > 0.0 else [],
                 generative_eval_single_batch_size=self.val_generation_kwargs["insert_const_ids_in_cot"]
             )
