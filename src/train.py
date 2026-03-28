@@ -264,6 +264,7 @@ def main():
 
     parser.add_argument('--save_model', type=str, required=True)
     parser.add_argument('--save_period', type=int, default=1)
+    parser.add_argument('--eval_period', type=int, default=1, help='Run generative eval every N epochs')
     parser.add_argument('--from_pretrained', type=str, default=None, help="Load model weights only")
     parser.add_argument('--from_pretrained_checkpoint', type=str, default=None, help="Load model weights and optimizer state")
     parser.add_argument('--resume_without_optimizer', action='store_true', default=False)
