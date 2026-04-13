@@ -1,0 +1,23 @@
+# Core
+torch
+transformers
+datasets
+accelerate
+numpy
+pandas
+tqdm
+
+# Experiment tracking
+wandb
+
+# Optional - LoRA / parameter-efficient fine-tuning
+peft
+
+# Graph / data generation (SubPrOsQA)
+networkx
+matplotlib
+seaborn
+scikit-learn
+
+# Testing
+pytest
