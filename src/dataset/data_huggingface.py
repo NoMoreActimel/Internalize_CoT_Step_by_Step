@@ -52,7 +52,7 @@ class CoTChunksHFDataset(CoTDatasetChunks, Dataset):
             dataset = load_dataset(path, name=name, split=split, data_files=data_files)
             if shuffle:
                 dataset = dataset.shuffle(shuffle_seed) if shuffle_seed is not None else dataset.shuffle()
-            self.dataset = dataset.select(range(max_samples))
+            self.dataset = dataset.select(range(int(max_samples)))
         
         self.question_key = question_key
         self.answer_key = answer_key

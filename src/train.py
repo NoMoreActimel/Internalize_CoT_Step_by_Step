@@ -294,6 +294,7 @@ def main():
     parser.add_argument('--grpo_kl_coeff', type=float, default=0.01, help='KL divergence penalty coefficient')
     parser.add_argument('--grpo_temperature', type=float, default=0.7, help='Sampling temperature for generation')
     parser.add_argument('--grpo_max_new_tokens', type=int, default=None, help='Max new tokens for GRPO generation (defaults to max_new_tokens)')
+    parser.add_argument('--grpo_inner_steps', type=int, default=1, help='GRPO inner updates K per rollout (μ). Each uses an independent mask pattern.')
 
     parser.add_argument('--wandb_project', type=str, default=None)
     parser.add_argument('--wandb_run_name', type=str, default=None)
@@ -362,7 +363,7 @@ def main():
 
     # Create Optimizer
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
-    use_fused = 'fused' in inspect.signature(torch.optim.AdamW).parameters
+    use_fused = 'fused' in inspect.signature(torch.optim.AdamW).parameters and torch.cuda.is_available()
     extra_args = dict(fused=True) if use_fused else dict()
     optimizer = torch.optim.AdamW(trainable_params, lr=args.lr, **extra_args)
 

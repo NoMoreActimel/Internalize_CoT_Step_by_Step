@@ -193,7 +193,50 @@ class ImplicitModel(nn.Module):
             if return_logits:
                 return [item[0] for item in beam_output], [item[1] for item in beam_output]
         return beam_output
-    
+
+    @torch.no_grad()
+    def sample_completions(
+            self,
+            input_ids,
+            max_new_tokens=512,
+            num_return_sequences=1,
+            temperature=1.0,
+            top_p=1.0,
+            top_k=0,
+            stop_on_two_eos=True,
+    ):
+        """Temperature-sampling entry point used by GRPO.
+
+        Mirrors the plain branch of self.generate (DoubleEOS processor + stopping
+        criteria + base_model.generate) but enables do_sample and expands a single
+        prompt to num_return_sequences completions.
+        """
+        if input_ids.ndim == 1:
+            input_ids = input_ids.unsqueeze(0)
+
+        generation_config = GenerationConfig.from_model_config(self.base_model.config)
+        generation_config.pad_token_id = self.tokenizer.eos_token_id
+        if stop_on_two_eos:
+            generation_config.eos_token_id = -1
+            logits_processor = LogitsProcessorList([DoubleEOSLogitsProcessor(self.tokenizer.eos_token_id)])
+            stopping_criteria = StoppingCriteriaList([DoubleEOSStoppingCriteria(self.tokenizer.eos_token_id)])
+        else:
+            logits_processor = None
+            stopping_criteria = None
+
+        return self.base_model.generate(
+            input_ids=input_ids,
+            generation_config=generation_config,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            num_return_sequences=num_return_sequences,
+            logits_processor=logits_processor,
+            stopping_criteria=stopping_criteria,
+        )
+
     def _handle_inputs_with_cot(self, input_ids, position_ids, sep_positions, predict_cot_in_parallel=False, force_cot_answer_split=False, logits_processor=None):
         input_ids = input_ids[:, :sep_positions[0]+1]
         if position_ids is not None:

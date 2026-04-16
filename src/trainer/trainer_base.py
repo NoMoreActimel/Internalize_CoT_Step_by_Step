@@ -42,7 +42,7 @@ class BaseTrainer:
     def check_best(self, acc, tok_acc, ppl):
         save_best = False
         if self.best_val_metric_type == "accuracy":
-            if acc > self.best_val_metric:
+            if acc is not None and acc > self.best_val_metric:
                 self.best_val_metric = acc
                 save_best = True
         elif self.best_val_metric_type == "token-accuracy":
@@ -126,7 +126,8 @@ class BaseTrainer:
             generative_eval_single_batch_size=False
     ):
         self.model.eval()
-        self.metrics_tracker.reset()
+        if self.metrics_tracker is not None:
+            self.metrics_tracker.reset()
 
         total_tokens = 0
         total_correct = 0
@@ -217,7 +218,7 @@ class BaseTrainer:
         total_generated = reduce_func(total_generated)
         total_correct = reduce_func(total_correct)
 
-        accuracy = total_correct / total_generated if perform_generative_eval else 0.0   
+        accuracy = total_correct / total_generated if perform_generative_eval else None
         token_accuracy = total_correct_tokens / total_tokens
         loss = total_loss / total_tokens
         ppl = math.exp(loss)
@@ -225,17 +226,19 @@ class BaseTrainer:
         if self.accelerator.is_main_process and self.metrics_tracker:
             self.metrics_tracker.update("loss", loss)
             self.metrics_tracker.update("perplexity", ppl)
-            self.metrics_tracker.update("accuracy", accuracy)
+            if accuracy is not None:
+                self.metrics_tracker.update("accuracy", accuracy)
             self.metrics_tracker.update("token_accuracy", token_accuracy)
 
             if self.jepa_training:
                 self.metrics_tracker.update("CE_loss", outputs.ce_loss.item())
                 self.metrics_tracker.update("JEPA_loss", outputs.logits_loss.item())
-            
+
             self.log_scalars(self.metrics_tracker)
             self.metrics_tracker.reset()
 
-        print (f'Evaluation on part: {name}; PPL: {ppl}; Accuracy: {accuracy}; Token Accuracy: {token_accuracy}.')
+        acc_str = f'{accuracy:.4f}' if accuracy is not None else 'skipped'
+        print (f'Evaluation on part: {name}; PPL: {ppl}; Accuracy: {acc_str}; Token Accuracy: {token_accuracy}.')
         return accuracy, token_accuracy, ppl
 
     def save_epoch(self, epoch, save_best=False):
