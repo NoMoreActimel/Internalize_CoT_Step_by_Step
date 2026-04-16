@@ -3,15 +3,16 @@ export PYTHONPATH="/home/ss19021/Internalize_CoT_Step_by_Step:$PYTHONPATH"
 
 cd /home/ss19021/Internalize_CoT_Step_by_Step/ || exit
 
+DATE="041526"
 SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
-DIR="$SCRATCH_DIR/train_models/gsm8k/gpt2/gpt2_grpo_randommasks/"
+DIR="$SCRATCH_DIR/train_models/gsm8k/gpt2_pretrained/gpt2_grpo_randommasks_${DATE}/"
 mkdir -p "$DIR"
 
 which python
 which accelerate
 
 # Point to the SFT randommasks checkpoint for this model
-SFT_CKPT="$SCRATCH_DIR/train_models/gsm8k/gpt2/gpt2_randommasks/model_best.pth"
+SFT_CKPT="$SCRATCH_DIR/train_models/gsm8k/gpt2_pretrained/gpt2_randommasks_${DATE}/model_best.pth"
 
 accelerate launch \
   --mixed_precision=bf16 \

@@ -5,7 +5,7 @@ cd /home/ss19021/Internalize_CoT_Step_by_Step/ || exit
 
 DATE="041526"
 SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
-DIR="$SCRATCH_DIR/train_models/gsm8k/gpt2_pretrained/gpt2_randommasks_${DATE}/"
+DIR="$SCRATCH_DIR/train_models/gsm8k/ll1b_pretrained/fullcot_ll1b_${DATE}/"
 mkdir -p "$DIR"
 
 which python
@@ -17,32 +17,27 @@ accelerate launch \
   --num_machines=1 \
 src/train.py \
     --mode train \
-    --model gpt2 \
+    --model meta-llama/Llama-3.2-1B \
     --huggingface_dataset \
     --path openai/gsm8k \
     --name main \
     --train_split train \
     --val_split "test;val" \
     --test_split "test;test" \
-    --best_val_metric "full-cot_accuracy" \
     --epochs 96 \
     --lr 5e-5 \
     --batch_size 8 \
     --accumulate 16 \
     --n_generative_eval_batches 64 \
-    --intermediate_eval \
-    --train_type cot-distill \
+    --train_type full-cot \
     --removal_type random-masks \
-    --joint_masked_distribution \
-    --replace_mask \
-    --prompt_in_percentage \
     --pretrain_epochs 0 \
     --eval_period 3 \
-    --save_period 30 \
     --seed 3456 \
     --reset_optimizer \
+    --save_period 30 \
     --wandb_project cot-distillation \
-    --wandb_run_name b8_gsm8k_randommasks_gpt2 \
+    --wandb_run_name b8_FULLCOT_gsm8k_ll1b \
     --max_new_tokens 512 \
     --save_model "$DIR" \
-    > "$DIR/log_masks.train" 2>&1
+    > "$DIR/log_fullcot.train" 2>&1

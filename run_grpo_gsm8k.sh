@@ -3,8 +3,9 @@ export PYTHONPATH="/home/ss19021/Internalize_CoT_Step_by_Step:$PYTHONPATH"
 
 cd /home/ss19021/Internalize_CoT_Step_by_Step/ || exit
 
+DATE="041526"
 SCRATCH_DIR="/scratch/ss19021/Internalize_CoT_Step_by_Step"
-DIR="$SCRATCH_DIR/train_models/gsm8k/ll1b_pretrained/ll1b_grpo_randommasks_082725/"
+DIR="$SCRATCH_DIR/train_models/gsm8k/ll1b_pretrained/ll1b_grpo_randommasks_${DATE}/"
 mkdir -p "$DIR"
 
 which python
@@ -51,7 +52,7 @@ src/train.py \
     --grpo_temperature 1.0 \
     --grpo_inner_steps 4 \
     --wandb_project cot-distillation \
-    --wandb_run_name b2_gsm8k_grpo_randommasks_ll1b \
+    --wandb_run_name b1_gsm8k_grpo_randommasks_ll1b \
     --max_new_tokens 512 \
     --save_model "$DIR" \
     > "$DIR/log_grpo.train" 2>&1
