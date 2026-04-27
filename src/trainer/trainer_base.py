@@ -344,6 +344,8 @@ class BaseTrainer:
         if self.writer is None:
             return
         for metric_name in metric_tracker.keys():
+            if metric_tracker.counts(metric_name) == 0:
+                continue
             self.writer.add_scalar(f"{metric_name}", metric_tracker.avg(metric_name))
 
     @staticmethod

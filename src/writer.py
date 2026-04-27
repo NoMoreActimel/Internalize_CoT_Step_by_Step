@@ -124,6 +124,9 @@ class MetricTracker:
     def avg(self, key):
         return self._data.average[key]
 
+    def counts(self, key):
+        return self._data.counts[key]
+
     def result(self):
         return dict(self._data.average)
 
